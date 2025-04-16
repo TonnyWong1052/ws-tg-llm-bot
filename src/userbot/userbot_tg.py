@@ -219,54 +219,137 @@ async def ping_handler(event):
         # Get current time
         current_time = time.strftime("%H:%M:%S %Z", time.localtime())
         
-        # Determine service provider based on hostname or system info
+        # Determine service provider based on hostname, system info, or environment variables
         provider = "Unknown"
         location = "Unknown"
         hostname_lower = hostname.lower()
         
-        if "aws" in hostname_lower or "ec2" in hostname_lower or "amazon" in hostname_lower:
-            provider = "AWS"
-            # Try to extract AWS region from hostname or environment
-            if "us-east" in hostname_lower:
-                location = "US East"
-            elif "us-west" in hostname_lower:
-                location = "US West"
-            elif "eu-" in hostname_lower:
-                location = "Europe"
-            elif "ap-" in hostname_lower:
-                location = "Asia Pacific"
-        elif "azure" in hostname_lower or "microsoft" in hostname_lower:
+        # Check for Azure-specific environment variables or file paths
+        is_azure = False
+        if os.path.exists('/var/lib/waagent/') or os.path.exists('/opt/azure/'):
+            is_azure = True
             provider = "Azure"
-            if "eastus" in hostname_lower:
-                location = "US East"
-            elif "westus" in hostname_lower:
-                location = "US West"
-            elif "westeurope" in hostname_lower or "northeurope" in hostname_lower:
-                location = "Europe"
-            elif "eastasia" in hostname_lower or "southeastasia" in hostname_lower:
-                location = "Asia"
-        elif "gcp" in hostname_lower or "google" in hostname_lower:
-            provider = "Google Cloud"
-            if "us-" in hostname_lower:
-                location = "US"
-            elif "europe-" in hostname_lower:
-                location = "Europe"
-            elif "asia-" in hostname_lower:
-                location = "Asia"
-        elif "heroku" in hostname_lower:
-            provider = "Heroku"
-        elif "digitalocean" in hostname_lower or "do-" in hostname_lower:
-            provider = "DigitalOcean"
+            
+            # Try to read region from Azure metadata
+            try:
+                import requests
+                # Azure metadata service with 2-second timeout
+                metadata_url = "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+                headers = {"Metadata": "true"}
+                r = requests.get(metadata_url, headers=headers, timeout=2)
+                if r.status_code == 200:
+                    metadata = r.json()
+                    if "compute" in metadata and "location" in metadata["compute"]:
+                        location = metadata["compute"]["location"]
+                        location = location.replace("eastus", "US East").replace("westus", "US West")
+                        location = location.replace("westeurope", "Europe").replace("northeurope", "Europe")
+                        location = location.replace("eastasia", "Asia").replace("southeastasia", "Asia")
+            except Exception as e:
+                print(f"Error fetching Azure metadata: {e}")
+        
+        if not is_azure:
+            # Use default detection logic
+            if "aws" in hostname_lower or "ec2" in hostname_lower or "amazon" in hostname_lower:
+                provider = "AWS"
+                # Try to extract AWS region from hostname or environment
+                if "us-east" in hostname_lower:
+                    location = "US East"
+                elif "us-west" in hostname_lower:
+                    location = "US West"
+                elif "eu-" in hostname_lower:
+                    location = "Europe"
+                elif "ap-" in hostname_lower:
+                    location = "Asia Pacific"
+            elif "azure" in hostname_lower or "microsoft" in hostname_lower:
+                provider = "Azure"
+                if "eastus" in hostname_lower:
+                    location = "US East"
+                elif "westus" in hostname_lower:
+                    location = "US West"
+                elif "westeurope" in hostname_lower or "northeurope" in hostname_lower:
+                    location = "Europe"
+                elif "eastasia" in hostname_lower or "southeastasia" in hostname_lower:
+                    location = "Asia"
+            elif "gcp" in hostname_lower or "google" in hostname_lower:
+                provider = "Google Cloud"
+                if "us-" in hostname_lower:
+                    location = "US"
+                elif "europe-" in hostname_lower:
+                    location = "Europe"
+                elif "asia-" in hostname_lower:
+                    location = "Asia"
+            elif "heroku" in hostname_lower:
+                provider = "Heroku"
+            elif "digitalocean" in hostname_lower or "do-" in hostname_lower:
+                provider = "DigitalOcean"
+        
+        # For Azure, check a different way if location is still unknown
+        if provider == "Azure" and location == "Unknown":
+            try:
+                # Try running 'az account show' if Azure CLI is installed
+                import subprocess
+                result = subprocess.run(['az', 'account', 'show', '--query', 'location', '-o', 'tsv'], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0 and result.stdout.strip():
+                    location = result.stdout.strip()
+                    # Make location more friendly
+                    location = location.replace("eastus", "US East").replace("westus", "US West")
+                    location = location.replace("westeurope", "Europe").replace("northeurope", "Europe")
+                    location = location.replace("eastasia", "Asia").replace("southeastasia", "Asia")
+            except Exception as e:
+                print(f"Error using az CLI to determine location: {e}")
+                
+            # If still unknown and hostname contains region hints
+            if location == "Unknown":
+                for region in ["eastus", "westus", "westeurope", "northeurope", "eastasia", "southeastasia"]:
+                    if region in hostname_lower:
+                        if "east" in region and "us" in region:
+                            location = "US East"
+                            break
+                        elif "west" in region and "us" in region:
+                            location = "US West"
+                            break
+                        elif "europe" in region:
+                            location = "Europe"
+                            break
+                        elif "asia" in region:
+                            location = "Asia"
+                            break
+                            
+        # Add network connectivity test
+        network_status = "Connected"
+        try:
+            # Try pinging Telegram API
+            import subprocess
+            ping_result = subprocess.run(['ping', '-c', '1', 'api.telegram.org'], 
+                                        capture_output=True, text=True, timeout=3)
+            if ping_result.returncode != 0:
+                network_status = "Limited"
+        except Exception:
+            network_status = "Status check failed"
         
         # Construct response message
         response = f"{round(round_trip_time, 2)}ms\n"
         response += f"Service: {provider}\n"
         response += f"Location: {location}\n"
-        
+        # response += f"Network: {network_status}\n"
+        # response += f"System: {system}\n"
+
         await safe_send_message(message, response)
         
     except Exception as e:
-        await safe_send_message(message, f"Error measuring ping: {str(e)}")
+        error_details = f"Error measuring ping: {str(e)}\n\n"
+        error_details += "Debug info:\n"
+        error_details += f"- Python version: {platform.python_version()}\n"
+        error_details += f"- Platform: {platform.platform()}\n"
+        error_details += f"- System: {platform.system()}\n"
+        
+        try:
+            error_details += f"- Hostname: {socket.gethostname()}\n"
+        except Exception as e2:
+            error_details += f"- Hostname: Error retrieving ({str(e2)})\n"
+            
+        await safe_send_message(message, error_details)
 
 
 @client.on(events.NewMessage(pattern=r'^/unwire(?:\s+(.+))?$'))
