@@ -263,10 +263,12 @@ async def unwire_news_handler(event):
             return
             
         # Handle message length limits
+        final_messages = []  # Track all messages sent for deletion
         TELEGRAM_MAX_LENGTH = 4000
         if len(news_summary) > TELEGRAM_MAX_LENGTH:
             first_part = news_summary[:TELEGRAM_MAX_LENGTH - 30] + "...\n\n[Message continued in replies]"
             await safe_send_message(thinking_msg, first_part)
+            final_messages.append(thinking_msg)
             
             remaining_text = news_summary[TELEGRAM_MAX_LENGTH - 30:]
             chunk_size = TELEGRAM_MAX_LENGTH - 20
@@ -279,17 +281,52 @@ async def unwire_news_handler(event):
                 remaining_text = remaining_text[chunk_size:]
                 
                 part_header = f"[Part {current_part}/{total_parts}]\n\n"
-                await thinking_msg.respond(part_header + current_chunk)
+                reply_msg = await thinking_msg.respond(part_header + current_chunk)
+                final_messages.append(reply_msg)
                 current_part += 1
                 
                 await asyncio.sleep(1.5)
         else:
             await safe_send_message(thinking_msg, news_summary)
+            final_messages.append(thinking_msg)
+
+        # Schedule deletion of all news messages after 5 minutes (300 seconds)
+        # First, send a notice that messages will be auto-deleted
+        notice_msg = await event.respond("📢 These news messages will be automatically deleted in 5 minutes to keep the chat clean.")
+        final_messages.append(notice_msg)
+        
+        # Schedule deletion task
+        asyncio.create_task(delete_messages_after_delay(final_messages, 300))
             
     except Exception as e:
         error_msg = f"Sorry, an error occurred while fetching news: {str(e)}"
         await event.reply(error_msg)
         print(f"Error in unwire_news_handler: {str(e)}")
+
+async def delete_messages_after_delay(messages, delay_seconds):
+    """
+    Delete a list of messages after the specified delay
+    
+    Args:
+        messages: List of message objects to delete
+        delay_seconds: Number of seconds to wait before deleting
+    """
+    try:
+        # Wait for the specified time
+        await asyncio.sleep(delay_seconds)
+        
+        # Delete all messages
+        for msg in messages:
+            try:
+                await msg.delete()
+                # Small delay between deletions to avoid rate limits
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Error deleting message: {str(e)}")
+        
+        print(f"Successfully deleted {len(messages)} news messages after {delay_seconds} seconds")
+    except Exception as e:
+        print(f"Error in delete_messages_after_delay: {str(e)}")
 
 async def process_stream_with_updates(message, stream_generator):
     full_response = ""
