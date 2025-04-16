@@ -7,6 +7,28 @@ PROJECT_ROOT=$(pwd)
 # Make directories for logs if they don't exist
 mkdir -p logs
 
+# Determine which Python and pip commands to use
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "❌ Error: Neither python3 nor python was found. Please install Python."
+    exit 1
+fi
+
+if command -v pip3 &> /dev/null; then
+    PIP_CMD="pip3"
+elif command -v pip &> /dev/null; then
+    PIP_CMD="pip"
+else
+    echo "❌ Error: Neither pip3 nor pip was found. Please install pip."
+    exit 1
+fi
+
+echo "Using Python command: $PYTHON_CMD"
+echo "Using pip command: $PIP_CMD"
+
 # Check for any running bot processes and terminate them
 if pgrep -f "python.*userbot_tg.py" > /dev/null; then
     echo "Found existing bot process. Terminating it..."
@@ -22,7 +44,7 @@ fi
 
 # Install required packages
 echo "Installing required packages..."
-pip install -r requirements.txt --user
+$PIP_CMD install -r requirements.txt --user
 
 # Make sure the config directory exists
 mkdir -p config
@@ -34,23 +56,25 @@ if [ -f ".env" ]; then
 fi
 
 # Create a monitoring script to automatically restart the bot if it crashes
-cat > ${PROJECT_ROOT}/scripts/monitor_bot.sh << 'EOF'
+cat > ${PROJECT_ROOT}/scripts/monitor_bot.sh << EOF
 #!/bin/bash
 
-cd "$(dirname "$0")/.." || exit
+cd "$(dirname "\$0")/.." || exit
 LOG_DIR="logs"
-mkdir -p "$LOG_DIR"
+mkdir -p "\$LOG_DIR"
 
-echo "[$(date)] Monitor script started" >> "$LOG_DIR/monitor.log"
+PYTHON_CMD="$PYTHON_CMD"
+
+echo "[\$(date)] Monitor script started using \$PYTHON_CMD" >> "\$LOG_DIR/monitor.log"
 
 while true; do
   if ! pgrep -f "python.*userbot_tg.py" > /dev/null; then
-    echo "[$(date)] Bot process not found, restarting..." >> "$LOG_DIR/monitor.log"
-    nohup python src/userbot/userbot_tg.py > "$LOG_DIR/bot_output.log" 2>&1 &
-    BOT_PID=$!
-    echo "[$(date)] Bot restarted with PID $BOT_PID" >> "$LOG_DIR/monitor.log"
+    echo "[\$(date)] Bot process not found, restarting..." >> "\$LOG_DIR/monitor.log"
+    nohup \$PYTHON_CMD src/userbot/userbot_tg.py > "\$LOG_DIR/bot_output.log" 2>&1 &
+    BOT_PID=\$!
+    echo "[\$(date)] Bot restarted with PID \$BOT_PID" >> "\$LOG_DIR/monitor.log"
   else
-    echo "[$(date)] Bot is running" >> "$LOG_DIR/monitor.log"
+    echo "[\$(date)] Bot is running" >> "\$LOG_DIR/monitor.log"
   fi
   sleep 300  # Check every 5 minutes
 done
@@ -59,8 +83,8 @@ EOF
 chmod +x ${PROJECT_ROOT}/scripts/monitor_bot.sh
 
 # Start the bot using nohup
-echo "Starting Telegram bot with nohup..."
-nohup python src/userbot/userbot_tg.py > logs/bot_output.log 2>&1 &
+echo "Starting Telegram bot with nohup using $PYTHON_CMD..."
+nohup $PYTHON_CMD src/userbot/userbot_tg.py > logs/bot_output.log 2>&1 &
 BOT_PID=$!
 
 # Start the monitor script in background
@@ -89,11 +113,11 @@ fi
 
 echo ""
 echo "=== Latest Bot Logs ==="
-tail -n 20 logs/bot_output.log
+tail -n 20 logs/bot_output.log 2>/dev/null || echo "No logs found"
 
 echo ""
 echo "=== Latest Monitor Logs ==="
-tail -n 10 logs/monitor.log
+tail -n 10 logs/monitor.log 2>/dev/null || echo "No logs found"
 EOF
 
 chmod +x ${PROJECT_ROOT}/scripts/check_status.sh
