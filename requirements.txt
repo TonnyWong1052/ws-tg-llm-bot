@@ -1,0 +1,5 @@
+telethon
+python-dotenv
+requests
+openai
+beautifulsoup4
