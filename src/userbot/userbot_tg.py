@@ -13,6 +13,9 @@ from api.llm_api import LLMClient
 from telethon.errors.rpcerrorlist import FloodWaitError
 from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE
 from services.unwire_fetch import fetch_unwire_news, fetch_unwire_article, fetch_unwire_recent
+import time
+import platform
+import socket
 
 # Load environment variables from config/.env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'config', '.env'))
@@ -197,6 +200,75 @@ async def deepseek_r1_api_handler(event):
             
         print(f"Error in deepseek_r1_api_handler: {str(e)}")
 
+
+@client.on(events.NewMessage(pattern=r'^/ping$'))
+async def ping_handler(event):
+    """Measure and display the ping between client and server."""
+    
+    start_time = time.time()
+    message = await event.reply("Pinging...")
+    
+    try:
+        # Calculate round trip time
+        round_trip_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+        
+        # Get system info
+        system = platform.system()
+        hostname = socket.gethostname()
+        
+        # Get current time
+        current_time = time.strftime("%H:%M:%S %Z", time.localtime())
+        
+        # Determine service provider based on hostname or system info
+        provider = "Unknown"
+        location = "Unknown"
+        hostname_lower = hostname.lower()
+        
+        if "aws" in hostname_lower or "ec2" in hostname_lower or "amazon" in hostname_lower:
+            provider = "AWS"
+            # Try to extract AWS region from hostname or environment
+            if "us-east" in hostname_lower:
+                location = "US East"
+            elif "us-west" in hostname_lower:
+                location = "US West"
+            elif "eu-" in hostname_lower:
+                location = "Europe"
+            elif "ap-" in hostname_lower:
+                location = "Asia Pacific"
+        elif "azure" in hostname_lower or "microsoft" in hostname_lower:
+            provider = "Azure"
+            if "eastus" in hostname_lower:
+                location = "US East"
+            elif "westus" in hostname_lower:
+                location = "US West"
+            elif "westeurope" in hostname_lower or "northeurope" in hostname_lower:
+                location = "Europe"
+            elif "eastasia" in hostname_lower or "southeastasia" in hostname_lower:
+                location = "Asia"
+        elif "gcp" in hostname_lower or "google" in hostname_lower:
+            provider = "Google Cloud"
+            if "us-" in hostname_lower:
+                location = "US"
+            elif "europe-" in hostname_lower:
+                location = "Europe"
+            elif "asia-" in hostname_lower:
+                location = "Asia"
+        elif "heroku" in hostname_lower:
+            provider = "Heroku"
+        elif "digitalocean" in hostname_lower or "do-" in hostname_lower:
+            provider = "DigitalOcean"
+        
+        # Construct response message
+        response = f"{round(round_trip_time, 2)}ms\n"
+        response += f"Service: {provider}\n"
+        response += f"Location: {location}\n"
+        
+        await safe_send_message(message, response)
+        
+    except Exception as e:
+        await safe_send_message(message, f"Error measuring ping: {str(e)}")
+
+
 @client.on(events.NewMessage(pattern=r'^/unwire(?:\s+(.+))?$'))
 async def unwire_news_handler(event):
     try:
@@ -292,8 +364,6 @@ async def unwire_news_handler(event):
 
         # Schedule deletion of all news messages after 5 minutes (300 seconds)
         # First, send a notice that messages will be auto-deleted
-        notice_msg = await event.respond("📢 These news messages will be automatically deleted in 5 minutes to keep the chat clean.")
-        final_messages.append(notice_msg)
         
         # Schedule deletion task
         asyncio.create_task(delete_messages_after_delay(final_messages, 300))

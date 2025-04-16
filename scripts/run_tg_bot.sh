@@ -23,4 +23,5 @@ fi
 # Run the Telegram bot
 echo "Starting the Telegram bot..."
 # python src/userbot/userbot_tg.py
+# nohup python3 src/userbot/userbot_tg.py > output.log 2>&1 &
 nohup python src/userbot/userbot_tg.py > output.log 2>&1 &
