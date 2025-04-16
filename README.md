@@ -23,7 +23,6 @@ GITHUB_API_KEY=your_github_key
 GROK_API_KEY=your_grok_key
 ```
 3. Install the requirements: `pip install -r requirements.txt`
-4. Run the bot: `./scripts/run_tg_bot.sh`
 
 ### Azure VM Setup
 1. Make sure you have Terraform and Azure CLI installed
