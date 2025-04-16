@@ -3,3 +3,4 @@ python-dotenv
 requests
 openai
 beautifulsoup4
+toml

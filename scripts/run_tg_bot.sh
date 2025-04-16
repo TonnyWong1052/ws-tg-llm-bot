@@ -9,7 +9,7 @@ PROJECT_ROOT=$(pwd)
 
 # Install required packages
 echo "Installing required packages..."
-sudo pip install -r requirements.txt
+sudo pip install -r requirements.txt --user
 
 # Make sure the config directory exists
 mkdir -p config
@@ -22,4 +22,5 @@ fi
 
 # Run the Telegram bot
 echo "Starting the Telegram bot..."
-python src/userbot/userbot_tg.py
+# python src/userbot/userbot_tg.py
+nohup python src/userbot/userbot_tg.py > output.log 2>&1 &
