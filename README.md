@@ -33,6 +33,10 @@ terraform apply
 ```
 4. The VM's IP address will be shown when done
 
+## Demo
+Feel free to call me with the command for testing:
+https://t.me/SecondarySchoolDog
+
 ## Commands
 - `/deepseek [question]` - Ask DeepSeek AI a question
 - `/r1 [question]` - Use DeepSeek R1 to think step by step
