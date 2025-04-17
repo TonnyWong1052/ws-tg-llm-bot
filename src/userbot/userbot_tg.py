@@ -3,7 +3,8 @@ import asyncio
 import os
 import time
 import sys
-import re
+import io
+import platform
 
 # Add the parent directory to the Python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,11 +15,11 @@ from telethon.errors.rpcerrorlist import FloodWaitError
 from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE
 from services.unwire_fetch import fetch_unwire_news, fetch_unwire_article, fetch_unwire_recent
 import time
-import platform
-import socket
-
 # Load environment variables from config/.env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'config', '.env'))
+
+# Create a global variable to track whether llm_client is initialized
+_llm_client_initialized = False
 
 API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
@@ -27,6 +28,38 @@ ENVIRONMENT = os.getenv('ENVIRONMENT', 'test')
 
 client = TelegramClient('session_name', API_ID, API_HASH)
 llm_client = LLMClient()
+
+# Ensure LLM client initialization
+def ensure_llm_client_initialized():
+    global llm_client, _llm_client_initialized
+    if not _llm_client_initialized:
+        print("Initializing LLM client...")
+        # Ensure API keys are set and available
+        
+        # Reinitialize LLM client
+        from api.llm_api import LLMClient
+        
+        # LLMClient will automatically read API keys from environment variables during initialization
+        llm_client = LLMClient()
+        
+        # Check if API keys exist
+        if llm_client.deepseek_api_key:
+            print("DeepSeek API key loaded")
+        
+        if llm_client.github_api_key:
+            print("GitHub API key loaded")
+        
+        if llm_client.grok_api_key:
+            print("Grok API key loaded")
+        
+        if llm_client.openai_api_key:
+            print("OpenAI API key loaded")
+        
+        _llm_client_initialized = True
+        print("LLM client initialization completed")
+
+# Ensure llm_client is initialized when the file is loaded
+ensure_llm_client_initialized()
 
 class FloodWaitHandler:
     def __init__(self):
@@ -75,614 +108,644 @@ async def create_llm_task(provider, prompt, **kwargs):
         asyncio.to_thread(llm_client.call_llm, provider, prompt, **kwargs)
     )
 
-async def handle_llm_request(event, provider, prompt, model_name=None, system_prompt=None, display_name=None):
-    display_name = display_name or provider.capitalize()
+async def handle_llm_request(event, llm_type, prompt, model_name=None, system_prompt=None, display_name=None):
+    """
+    Handles LLM requests for various models (grok, deepseek, etc.)
+    """
+    # Initialize variables to keep track of messages
+    original_message = event.message
+    response_message = None
     
     try:
-        thinking_msg = await event.reply(INITIAL_MESSAGE_ART)
-    except FloodWaitError as e:
-        print(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-        await asyncio.sleep(2)
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-    except Exception as e:
-        print(f"Error sending initial message: {e}. Using simple message instead.")
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
+        # Send initial response message
+        response_message = await event.respond("處理中，請稍等...")
+        
+        # Initialize LLMClient if not already done
+        global llm_client, _llm_client_initialized
+        if not _llm_client_initialized:
+            ensure_llm_client_initialized()
+        
+        model = model_name if model_name else llm_type
+
+        # Get appropriate stream generator based on LLM type
+        if llm_type == 'deepseek':
+            # For DeepSeek, use call_deepseek_stream with the proper parameters
+            stream_generator = llm_client.call_deepseek_stream(prompt, model=model, mode="reasoner")
+        elif llm_type == 'grok':
+            # For Grok, use call_grok3_stream with the proper parameters
+            stream_generator = llm_client.call_grok3_stream(system_prompt, prompt, model_name=model)
+        else:
+            await response_message.edit("不支持的 LLM 類型")
+            return
+        
+        # Process the stream and update the message
+        await process_stream_with_updates(message_obj=response_message, stream_generator=stream_generator)
     
-    response = None
-    
-    try:
-        kwargs = {}
-        if model_name:
-            kwargs['model'] = model_name
-        if system_prompt:
-            kwargs['system_prompt'] = system_prompt
-            
-        llm_task = await create_llm_task(provider, prompt, **kwargs)
-        
-        response = await animated_thinking(thinking_msg, llm_task)
-        
-        await safe_send_message(thinking_msg, response)
-        
     except FloodWaitError as e:
         wait_seconds = e.seconds
-        print(f"FloodWaitError when updating response: {wait_seconds} seconds wait required")
+        print(f"FloodWaitError in handle_llm_request: {wait_seconds}s wait required")
         
-        error_msg = f"Response was generated but Telegram rate limits were hit. Please try again in {wait_seconds} seconds."
-        await safe_send_message(thinking_msg, error_msg, event=event)
-        
+        try:
+            if response_message:
+                await response_message.edit(f"Telegram 速率限制已觸發，需要等待 {wait_seconds} 秒。請稍後再試。")
+            else:
+                await event.respond(f"Telegram 速率限制已觸發，需要等待 {wait_seconds} 秒。請稍後再試。")
+        except Exception as edit_error:
+            print(f"Unable to edit/send rate limit message: {edit_error}")
+    
     except Exception as e:
-        error_msg = f"Sorry, an error occurred: {str(e)}"
-        await safe_send_message(thinking_msg, error_msg, event=event)
+        print(f"Error in handle_llm_request: {e}")
+        import traceback
+        traceback.print_exc()
         
-        print(f"Error in {provider} handler: {str(e)}")
+        # Try to send error message
+        try:
+            if response_message:
+                await response_message.edit(f"出錯了: {str(e)}")
+            else:
+                await event.reply(f"出錯了: {str(e)}")
+        except Exception as reply_error:
+            print(f"Unable to send error message: {reply_error}")
 
 async def safe_send_message(message_obj, text, event=None, parse_mode=None):
-    try:
-        await message_obj.edit(text, parse_mode=parse_mode)
-        return True
-    except FloodWaitError as e:
-        print(f"FloodWaitError in safe_send_message: {e.seconds}s wait required")
-        
-        if e.seconds <= 60:
+    TELEGRAM_MAX_LENGTH = 4000
+    max_retry_times = 2  # Maximum retry times
+    
+    # Check if text is a file path
+    if isinstance(text, str) and text.startswith("logs/") and os.path.exists(text):
+        try:
+            # Directly send file path
+            await message_obj.edit(file=text)
+            return True
+        except FloodWaitError as e:
+            wait_seconds = e.seconds
+            print(f"FloodWaitError in safe_send_message (file path): {wait_seconds}s wait required")
+            
+            # If wait time isn't too long, wait and retry
+            if wait_seconds <= 180:  # Maximum wait of 3 minutes
+                try:
+                    print(f"Waiting {wait_seconds} seconds before retry...")
+                    await asyncio.sleep(wait_seconds + 1)  # Wait an extra second to ensure safety
+                    await message_obj.edit(file=text)
+                    return True
+                except Exception as retry_e:
+                    print(f"Retry failed after waiting: {retry_e}")
+            
+            # Try to read file content and send memory file
             try:
-                print(f"Waiting {e.seconds} seconds before retry...")
-                await asyncio.sleep(e.seconds)
-                await message_obj.edit(text[:4000], parse_mode=parse_mode)
-                return True
-            except Exception as retry_e:
-                print(f"Failed to edit message after waiting: {retry_e}")
-        
-        if event is not None:
-            try:
-                await event.reply(f"⚠️ Rate limited. {text[:3900]}...", parse_mode=parse_mode)
-                return True
-            except Exception as reply_e:
-                print(f"Failed to send new message: {reply_e}")
+                with open(text, "rb") as f:
+                    file_content = f.read()
+                file_obj = io.BytesIO(file_content)
+                file_obj.name = os.path.basename(text)
                 
-        return False
-        
-    except Exception as e:
-        print(f"Error in safe_send_message: {e}")
-        
-        if event is not None:
-            try:
-                await event.reply(f"⚠️ Error sending message: {text[:3900]}...", parse_mode=parse_mode)
+                # Wait again before trying to edit to avoid triggering rate limits
+                await asyncio.sleep(2)
+                await message_obj.edit(file=file_obj)
                 return True
-            except:
-                pass
+            except FloodWaitError as e2:
+                print(f"Second FloodWaitError: {e2.seconds}s wait required. Giving up.")
+                return False
+            except Exception as e2:
+                print(f"Error sending file from memory after reading {text}: {e2}")
+                # Continue with normal processing, try to send text
+    
+    # Handle normal text
+    if len(text) > TELEGRAM_MAX_LENGTH:
+        try:
+            # Create a temporary file in memory instead of saving to disk
+            import io
+            file_obj = io.BytesIO(text.encode('utf-8'))
+            file_obj.name = "output.txt"
+            
+            # Edit the message to send the file
+            await message_obj.edit(file=file_obj)
+            return True
+        except FloodWaitError as e:
+            wait_seconds = e.seconds
+            print(f"FloodWaitError in safe_send_message (memory file): {wait_seconds}s wait required")
+            
+            # If wait time isn't too long, wait and retry
+            if wait_seconds <= 180:  # Maximum wait of 3 minutes
+                try:
+                    print(f"Waiting {wait_seconds} seconds before retry...")
+                    await asyncio.sleep(wait_seconds + 1)
+                    await message_obj.edit(file=file_obj)
+                    return True
+                except Exception as retry_e:
+                    print(f"Failed to edit message after waiting: {retry_e}")
+            
+            # If still failing, try to save to disk and send the file
+            try:
+                if not os.path.exists('logs'):
+                    os.makedirs('logs')
                 
+                file_path = "logs/output.txt"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                
+                # Wait again before trying to edit to avoid triggering rate limits
+                await asyncio.sleep(2)
+                await message_obj.edit(file=file_path)
+                return True
+            except Exception as file_e:
+                print(f"Error sending disk file: {file_e}")
+            
+            # If all attempts fail, only send truncated message as a last resort
+            if event is not None:
+                for retry in range(max_retry_times):
+                    try:
+                        truncated_msg = text[:TELEGRAM_MAX_LENGTH - 100] + "...\n\n[Message too long, truncated]"
+                        await event.respond(truncated_msg)
+                        return True
+                    except FloodWaitError as respond_e:
+                        # If this is the last retry, give up
+                        if retry == max_retry_times - 1:
+                            print(f"Final FloodWaitError: {respond_e.seconds}s required. Giving up.")
+                            return False
+                        
+                        # Otherwise wait and retry
+                        wait_time = respond_e.seconds
+                        print(f"FloodWaitError in respond: {wait_time}s required. Waiting...")
+                        await asyncio.sleep(wait_time + 1)
+                    except Exception as respond_error:
+                        print(f"Error sending reply message: {respond_error}")
+                        break
+            
+            return False
+        except Exception as e:
+            print(f"Error sending file: {e}")
+            # Try to send a new message as a last resort
+            if event is not None:
+                for retry in range(max_retry_times):
+                    try:
+                        truncated_msg = text[:TELEGRAM_MAX_LENGTH - 100] + "...\n\n[Message too long, truncated]"
+                        await event.respond(truncated_msg)
+                        return True
+                    except FloodWaitError as respond_e:
+                        # If this is the last retry, give up
+                        if retry == max_retry_times - 1:
+                            print(f"Final FloodWaitError: {respond_e.seconds}s required. Giving up.")
+                            return False
+                        
+                        # Otherwise wait and retry
+                        wait_time = respond_e.seconds
+                        print(f"FloodWaitError in respond: {wait_time}s required. Waiting...")
+                        await asyncio.sleep(wait_time + 1)
+                    except Exception as respond_error:
+                        print(f"Error sending reply message: {respond_error}")
+                        return False
+            return False
+    else:
+        retry_count = 0
+        while retry_count <= max_retry_times:
+            try:
+                await message_obj.edit(text, parse_mode=parse_mode)
+                return True
+            except FloodWaitError as e:
+                wait_seconds = e.seconds
+                print(f"FloodWaitError in safe_send_message: {wait_seconds}s wait required (retry {retry_count+1}/{max_retry_times+1})")
+                
+                # Last retry, if wait time is too long, give up
+                if retry_count == max_retry_times or wait_seconds > 180:
+                    break
+                
+                # Otherwise wait and retry
+                try:
+                    print(f"Waiting {wait_seconds} seconds before retry...")
+                    await asyncio.sleep(wait_seconds + 1)
+                    retry_count += 1
+                except Exception as sleep_error:
+                    print(f"Error during sleep: {sleep_error}")
+                    break
+                
+            except Exception as e:
+                error_str = str(e)
+                if "Content of the message was not modified" in error_str:
+                    print("Message not modified error in safe_send_message. This is usually harmless.")
+                    return True  # Consider as success since content didn't change
+                    
+                print(f"Error in safe_send_message: {e}")
+                break
+        
+        # If editing original message fails, try sending a new message
+        if event is not None:
+            for retry in range(max_retry_times):
+                try:
+                    await event.respond(text, parse_mode=parse_mode)
+                    return True
+                except FloodWaitError as respond_e:
+                    # If this is the last retry, give up
+                    if retry == max_retry_times - 1:
+                        print(f"Final FloodWaitError: {respond_e.seconds}s required. Giving up.")
+                        return False
+                    
+                    # Otherwise wait and retry
+                    wait_time = respond_e.seconds
+                    print(f"FloodWaitError in respond: {wait_time}s required. Waiting...")
+                    await asyncio.sleep(wait_time + 1)
+                except Exception as reply_e:
+                    print(f"Failed to send new message: {reply_e}")
+                    if retry == max_retry_times - 1:
+                        return False
+                    # Continue to next retry
+                    await asyncio.sleep(2)
+        
+        # If all attempts fail, return failure
         return False
 
-@client.on(events.NewMessage(pattern=r'^/hi_dog($|\s+.*)'))
-async def dog_handler(event):
-    await event.reply('Woof! Hello there! 🐶')
-
-@client.on(events.NewMessage(pattern=r'^/r1 (.+)'))
-async def deepseek_r1_api_handler(event):
-    prompt = event.pattern_match.group(1).strip()
-    
-    try:
-        thinking_msg = await event.reply(INITIAL_MESSAGE_ART)
-    except FloodWaitError as e:
-        print(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-        await asyncio.sleep(2)
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-    except Exception as e:
-        print(f"Error sending initial message: {e}. Using simple message instead.")
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-    
-    error_occurred = False
-    
-    try:
-        if llm_client.environment.lower() == 'test':
-            test_task = asyncio.create_task(asyncio.to_thread(llm_client.call_test, prompt))
-            response = await animated_thinking(thinking_msg, test_task)
-            await safe_send_message(thinking_msg, response)
-            return
-            
-        model = "deepseek-coder-33b-instruct"
-        stream_generator = llm_client.call_deepseek_stream(prompt, model=model, mode="reasoner")
-        
-        await process_stream_with_updates(thinking_msg, stream_generator)
-            
-    except FloodWaitError as e:
-        wait_seconds = e.seconds
-        print(f"FloodWaitError when updating response: {wait_seconds} seconds wait required")
-        
-        error_msg = f"Response was generated but Telegram rate limits were hit. Please try again in {wait_seconds} seconds."
-        await safe_send_message(thinking_msg, error_msg, event=event)
-        error_occurred = True
-            
-    except Exception as e:
-        error_msg = f"Sorry, an error occurred: {str(e)}"
-        await safe_send_message(thinking_msg, error_msg, event=event)
-        error_occurred = True
-            
-        print(f"Error in deepseek_r1_api_handler: {str(e)}")
-
-
+# Add basic command handlers
 @client.on(events.NewMessage(pattern=r'^/ping$'))
 async def ping_handler(event):
-    """Measure and display the ping between client and server."""
-    
-    start_time = time.time()
-    message = await event.reply("Pinging...")
-    
     try:
-        # Calculate round trip time
-        round_trip_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+        # Get current timestamp
+        start_time = time.time()
         
-        # Get system info
-        system = platform.system()
-        hostname = socket.gethostname()
+        # Reply with initial message
+        message = await event.reply("Pinging...")
         
-        # Get current time
-        current_time = time.strftime("%H:%M:%S %Z", time.localtime())
+        # Calculate latency
+        latency = round((time.time() - start_time) * 1000, 2)
         
-        # Determine service provider based on hostname, system info, or environment variables
-        provider = "Local"
+        # Determine service type and location
+        service_type = "Local"
         location = "Unknown"
-        hostname_lower = hostname.lower()
         
-        # Check for Azure-specific environment variables or file paths
-        is_azure = False
-        if os.path.exists('/var/lib/waagent/') or os.path.exists('/opt/azure/'):
-            is_azure = True
-            provider = "Azure"
-            
-            # Try to read region from Azure metadata
-            try:
-                import requests
-                # Azure metadata service with 2-second timeout
-                metadata_url = "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
-                headers = {"Metadata": "true"}
-                r = requests.get(metadata_url, headers=headers, timeout=2)
-                if r.status_code == 200:
-                    metadata = r.json()
-                    if "compute" in metadata and "location" in metadata["compute"]:
-                        location = metadata["compute"]["location"]
-                        location = location.replace("eastus", "US East").replace("westus", "US West")
-                        location = location.replace("westeurope", "Europe").replace("northeurope", "Europe")
-                        location = location.replace("eastasia", "Asia").replace("southeastasia", "Asia")
-            except Exception as e:
-                print(f"Error fetching Azure metadata: {e}")
+        # Check if running in Azure (you can add more detailed checks)
+        if os.getenv('AZURE_DEPLOYMENT') or os.getenv('AZURE_WEBSITE_NAME'):
+            service_type = "Azure"
         
-        if not is_azure:
-            # Use default detection logic
-            if "aws" in hostname_lower or "ec2" in hostname_lower or "amazon" in hostname_lower:
-                provider = "AWS"
-                # Try to extract AWS region from hostname or environment
-                if "us-east" in hostname_lower:
-                    location = "US East"
-                elif "us-west" in hostname_lower:
-                    location = "US West"
-                elif "eu-" in hostname_lower:
-                    location = "Europe"
-                elif "ap-" in hostname_lower:
-                    location = "Asia Pacific"
-            elif "azure" in hostname_lower or "microsoft" in hostname_lower:
-                provider = "Azure"
-                if "eastus" in hostname_lower:
-                    location = "US East"
-                elif "westus" in hostname_lower:
-                    location = "US West"
-                elif "westeurope" in hostname_lower or "northeurope" in hostname_lower:
-                    location = "Europe"
-                elif "eastasia" in hostname_lower or "southeastasia" in hostname_lower:
-                    location = "Asia"
-            elif "gcp" in hostname_lower or "google" in hostname_lower:
-                provider = "Google Cloud"
-                if "us-" in hostname_lower:
-                    location = "US"
-                elif "europe-" in hostname_lower:
-                    location = "Europe"
-                elif "asia-" in hostname_lower:
-                    location = "Asia"
-            elif "heroku" in hostname_lower:
-                provider = "Heroku"
-            elif "digitalocean" in hostname_lower or "do-" in hostname_lower:
-                provider = "DigitalOcean"
+        # Create compact response format
+        response = f"{latency}ms\nService: {service_type}\nLocation: {location}"
         
-        # For Azure, check a different way if location is still unknown
-        if provider == "Azure" and location == "Unknown":
-            try:
-                # Try running 'az account show' if Azure CLI is installed
-                import subprocess
-                result = subprocess.run(['az', 'account', 'show', '--query', 'location', '-o', 'tsv'], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0 and result.stdout.strip():
-                    location = result.stdout.strip()
-                    # Make location more friendly
-                    location = location.replace("eastus", "US East").replace("westus", "US West")
-                    location = location.replace("westeurope", "Europe").replace("northeurope", "Europe")
-                    location = location.replace("eastasia", "Asia").replace("southeastasia", "Asia")
-            except Exception as e:
-                print(f"Error using az CLI to determine location: {e}")
-                
-            # If still unknown and hostname contains region hints
-            if location == "Unknown":
-                for region in ["eastus", "westus", "westeurope", "northeurope", "eastasia", "southeastasia"]:
-                    if region in hostname_lower:
-                        if "east" in region and "us" in region:
-                            location = "US East"
-                            break
-                        elif "west" in region and "us" in region:
-                            location = "US West"
-                            break
-                        elif "europe" in region:
-                            location = "Europe"
-                            break
-                        elif "asia" in region:
-                            location = "Asia"
-                            break
-                            
-        # Add network connectivity test
-        network_status = "Connected"
-        try:
-            # Try pinging Telegram API
-            import subprocess
-            ping_result = subprocess.run(['ping', '-c', '1', 'api.telegram.org'], 
-                                        capture_output=True, text=True, timeout=3)
-            if ping_result.returncode != 0:
-                network_status = "Limited"
-        except Exception:
-            network_status = "Status check failed"
-        
-        # Construct response message
-        response = f"{round(round_trip_time, 2)}ms\n"
-        response += f"Service: {provider}\n"
-        response += f"Location: {location}\n"
-        # response += f"Network: {network_status}\n"
-        # response += f"System: {system}\n"
-
-        await safe_send_message(message, response)
-        
-    except Exception as e:
-        error_details = f"Error measuring ping: {str(e)}\n\n"
-        error_details += "Debug info:\n"
-        error_details += f"- Python version: {platform.python_version()}\n"
-        error_details += f"- Platform: {platform.platform()}\n"
-        error_details += f"- System: {platform.system()}\n"
-        
-        try:
-            error_details += f"- Hostname: {socket.gethostname()}\n"
-        except Exception as e2:
-            error_details += f"- Hostname: Error retrieving ({str(e2)})\n"
-            
-        await safe_send_message(message, error_details)
-
-
-@client.on(events.NewMessage(pattern=r'^/unwire(?:\s+(.+))?$'))
-async def unwire_news_handler(event):
-    try:
-        args = event.pattern_match.group(1)
-        
-        # Use consistent message style with animation like other commands
-        try:
-            thinking_msg = await event.reply(INITIAL_MESSAGE_ART)
-        except FloodWaitError as e:
-            print(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-            await asyncio.sleep(2)
-            thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-        except Exception as e:
-            print(f"Error sending initial message: {e}. Using simple message instead.")
-            thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-        
-        if not args:
-            # Default behavior - fetch TODAY'S news (not recent news)
-            news_task = asyncio.create_task(
-                asyncio.to_thread(fetch_unwire_news)  # No date parameter = today's news
-            )
-            news_summary = await animated_thinking(thinking_msg, news_task)
-        elif args and (args.strip().startswith('http') or 'unwire.hk' in args.strip()):
-            # URL provided - fetch specific article
-            article_url = args.strip()
-            
-            # Process in a separate thread to avoid blocking
-            article_task = asyncio.create_task(
-                asyncio.to_thread(fetch_unwire_article, article_url)
-            )
-            news_summary = await animated_thinking(thinking_msg, article_task)
-        elif re.match(r'^(\d{4}[-/]\d{2}[-/]\d{2})$', args.strip()):
-            # Date-specific news fetch
-            date_str = args.strip()
-            
-            # Process in a separate thread to avoid blocking
-            news_task = asyncio.create_task(
-                asyncio.to_thread(fetch_unwire_news, date=date_str)
-            )
-            news_summary = await animated_thinking(thinking_msg, news_task)
-        else:
-            # Check if user specified a custom days range as a number
-            if args.strip().isdigit():
-                days = min(int(args.strip()), 30)  # Limit to 30 days max
-                
-                # Process in a separate thread to avoid blocking
-                news_task = asyncio.create_task(
-                    asyncio.to_thread(fetch_unwire_recent, days=days)
-                )
-                news_summary = await animated_thinking(thinking_msg, news_task)
-            else:
-                # Unknown argument format
-                news_summary = ("Invalid command format. Please use one of the following:\n"
-                               "/unwire - Get today's news\n"
-                               "/unwire 7 - Get news from the past 7 days\n"
-                               "/unwire 2025-04-15 - Get news from a specific date\n"
-                               "/unwire https://unwire.hk/article-url - Get a specific article")
-                await thinking_msg.edit(news_summary)
-                return
-        
-        # Check if the message is empty (no news found)
-        if news_summary.startswith("No news found") or news_summary.startswith("Article not found"):
-            await safe_send_message(thinking_msg, news_summary)
-            return
-            
-        # Handle message length limits
-        final_messages = []  # Track all messages sent for deletion
-        TELEGRAM_MAX_LENGTH = 4000
-        if len(news_summary) > TELEGRAM_MAX_LENGTH:
-            first_part = news_summary[:TELEGRAM_MAX_LENGTH - 30] + "...\n\n[Message continued in replies]"
-            await safe_send_message(thinking_msg, first_part)
-            final_messages.append(thinking_msg)
-            
-            remaining_text = news_summary[TELEGRAM_MAX_LENGTH - 30:]
-            chunk_size = TELEGRAM_MAX_LENGTH - 20
-            
-            total_parts = (len(remaining_text) + chunk_size - 1) // chunk_size
-            current_part = 1
-            
-            while remaining_text:
-                current_chunk = remaining_text[:chunk_size]
-                remaining_text = remaining_text[chunk_size:]
-                
-                part_header = f"[Part {current_part}/{total_parts}]\n\n"
-                reply_msg = await thinking_msg.respond(part_header + current_chunk)
-                final_messages.append(reply_msg)
-                current_part += 1
-                
-                await asyncio.sleep(1.5)
-        else:
-            await safe_send_message(thinking_msg, news_summary)
-            final_messages.append(thinking_msg)
-
-        # Schedule deletion of all news messages after 5 minutes (300 seconds)
-        # First, send a notice that messages will be auto-deleted
-        
-        # Schedule deletion task
-        asyncio.create_task(delete_messages_after_delay(final_messages, 300))
-            
-    except Exception as e:
-        error_msg = f"Sorry, an error occurred while fetching news: {str(e)}"
-        await event.reply(error_msg)
-        print(f"Error in unwire_news_handler: {str(e)}")
-
-async def delete_messages_after_delay(messages, delay_seconds):
-    """
-    Delete a list of messages after the specified delay
-    
-    Args:
-        messages: List of message objects to delete
-        delay_seconds: Number of seconds to wait before deleting
-    """
-    try:
-        # Wait for the specified time
-        await asyncio.sleep(delay_seconds)
-        
-        # Delete all messages
-        for msg in messages:
-            try:
-                await msg.delete()
-                # Small delay between deletions to avoid rate limits
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                print(f"Error deleting message: {str(e)}")
-        
-        print(f"Successfully deleted {len(messages)} news messages after {delay_seconds} seconds")
-    except Exception as e:
-        print(f"Error in delete_messages_after_delay: {str(e)}")
-
-async def process_stream_with_updates(message, stream_generator):
-    full_response = ""
-    last_update_time = 0
-    min_update_interval = 3.0
-    consecutive_errors = 0
-    max_consecutive_errors = 3
-    
-    TELEGRAM_MAX_LENGTH = 4000
-    
-    try:
-        all_chunks = []
-        error_occurred = False
-        response_too_long = False
-        
-        async for chunk in async_generator_from_sync(stream_generator):
-            if isinstance(chunk, str) and (chunk.startswith("Error") or chunk.startswith("Grok API returned error")):
-                error_message = f"Sorry, there was an issue with the API: {chunk}"
-                await safe_send_message(message, error_message[:TELEGRAM_MAX_LENGTH])
-                error_occurred = True
-                break
-            
-            all_chunks.append(chunk)
-            
-            full_response = chunk
-            
-            if len(full_response) > TELEGRAM_MAX_LENGTH:
-                response_too_long = True
-                continue
-            
-            current_time = asyncio.get_event_loop().time()
-            time_since_last_update = current_time - last_update_time
-            
-            if time_since_last_update >= min_update_interval and not response_too_long:
-                try:
-                    display_text = full_response + "\n\nTyping..."
-                    
-                    if len(display_text) > TELEGRAM_MAX_LENGTH:
-                        display_text = display_text[:TELEGRAM_MAX_LENGTH - 30] + "...\n\n[Message continues]"
-                    
-                    await message.edit(display_text)
-                    last_update_time = current_time
-                    consecutive_errors = 0
-                    
-                except FloodWaitError as e:
-                    consecutive_errors += 1
-                    wait_seconds = getattr(e, 'seconds', 15)
-                    
-                    print(f"FloodWaitError in stream update: {wait_seconds}s wait required")
-                    
-                    min_update_interval = max(min_update_interval * 1.5, wait_seconds / 5)
-                    print(f"Increasing minimum update interval to {min_update_interval}s")
-                    
-                    if consecutive_errors >= max_consecutive_errors:
-                        print(f"Too many consecutive FloodWaitErrors ({consecutive_errors}). Stopping intermediate updates.")
-                        break
-                        
-                    await asyncio.sleep(min(5, wait_seconds / 10))
-                    
-                except Exception as e:
-                    print(f"Error updating message with stream chunk: {str(e)}")
-        
-        if all_chunks and not error_occurred:
-            final_response = all_chunks[-1]
-            
-            if len(final_response) > TELEGRAM_MAX_LENGTH:
-                print(f"Final response length: {len(final_response)} characters - splitting into multiple messages")
-                
-                first_part = final_response[:TELEGRAM_MAX_LENGTH - 30] + "...\n\n[Message continued in replies]"
-                await safe_send_message(message, first_part)
-                
-                remaining_text = final_response[TELEGRAM_MAX_LENGTH - 30:]
-                chunk_size = TELEGRAM_MAX_LENGTH - 20
-                
-                total_parts = (len(remaining_text) + chunk_size - 1) // chunk_size
-                current_part = 1
-                
-                while remaining_text:
-                    current_chunk = remaining_text[:chunk_size]
-                    remaining_text = remaining_text[chunk_size:]
-                    
-                    part_header = f"[Part {current_part}/{total_parts}]\n\n"
-                    await message.respond(part_header + current_chunk)
-                    current_part += 1
-                    
-                    await asyncio.sleep(1.5)
-            else:
-                await safe_send_message(message, final_response)
-        elif not error_occurred:
-            await safe_send_message(message, "Sorry, the API didn't return any response. Please try again later.")
-            
-    except Exception as e:
-        print(f"Error in process_stream_with_updates: {str(e)}")
-        await safe_send_message(message, f"Error processing stream: {str(e)}")
-
-async def show_limited_thinking_animation(message, max_updates=5, interval=15):
-    animation_frames = THINKING_ANIMATIONS
-    for i in range(max_updates):
-        try:
-            dots = (i % 3) + 1
-            thinking_text = "Thinking" + "." * dots + "\n\n"
-            
-            current_frame = thinking_text + animation_frames[i % len(animation_frames)]
-            await message.edit(current_frame)
-            
-            await asyncio.sleep(interval)
-        except FloodWaitError as e:
-            print(f"FloodWaitError in limited animation: waiting {e.seconds} seconds")
-            await asyncio.sleep(e.seconds + 5)
-        except asyncio.CancelledError:
-            return
-        except Exception as e:
-            print(f"Error in limited thinking animation: {str(e)}")
-
-async def process_stream_without_updates(stream_generator):
-    full_response = ""
-    try:
-        async for chunk in async_generator_from_sync(stream_generator):
-            if chunk.startswith("Error") or chunk.startswith("DeepSeek API returned error"):
-                return f"Sorry, there was an issue with the DeepSeek API: {chunk}"
-                
-            full_response = chunk
-            
-        TELEGRAM_MAX_LENGTH = 4080
-        
-        if full_response:
-            if len(full_response) > TELEGRAM_MAX_LENGTH:
-                truncated_response = full_response[:TELEGRAM_MAX_LENGTH - 70]
-                return truncated_response + "\n\n[Response truncated to fit Telegram's 4080 character limit]"
-            return full_response
-        else:
-            return "Sorry, the API didn't return any response. Please try again later."
-    except Exception as e:
-        return f"Error processing stream: {str(e)}"
-
-async def async_generator_from_sync(sync_gen):
-    loop = asyncio.get_running_loop()
-    for item in sync_gen:
-        yield item
-        await asyncio.sleep(0.01)
-
-@client.on(events.NewMessage(pattern=r'^/deepseek (.+)'))
-async def deepseek_api_handler(event):
-    prompt = event.pattern_match.group(1).strip()
-    
-    try:
-        thinking_msg = await event.reply(INITIAL_MESSAGE_ART)
-    except FloodWaitError as e:
-        print(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-        await asyncio.sleep(2)
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-    except Exception as e:
-        print(f"Error sending initial message: {e}. Using simple message instead.")
-        thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-    
-    response = None
-    
-    try:
-        if llm_client.environment.lower() == 'test':
-            test_task = asyncio.create_task(asyncio.to_thread(llm_client.call_test, prompt))
-            response = await animated_thinking(thinking_msg, test_task)
-            await safe_send_message(thinking_msg, response)
-            return
-        
-        deepseek_task = asyncio.create_task(
-            asyncio.to_thread(llm_client.call_deepseek, prompt)
-        )
-        
-        response = await animated_thinking(thinking_msg, deepseek_task)
-        
-        await safe_send_message(thinking_msg, response)
-        
+        # Update message with response
+        await message.edit(response)
     except FloodWaitError as e:
         wait_seconds = e.seconds
-        print(f"FloodWaitError when updating response: {wait_seconds} seconds wait required")
+        print(f"FloodWaitError in ping_handler: {wait_seconds}s wait required")
         
-        error_msg = f"Response was generated but Telegram rate limits were hit. Please try again in {wait_seconds} seconds."
-        if response:
-            short_resp = response[:500] + "... [truncated due to rate limits]"
-            await safe_send_message(thinking_msg, short_resp, event=event)
-        else:
-            await safe_send_message(thinking_msg, error_msg, event=event)
-            
+        try:
+            await event.respond(f"Telegram rate limit triggered, need to wait {wait_seconds} seconds. Please try again later.")
+        except Exception as respond_error:
+            print(f"Unable to send rate limit notification: {respond_error}")
     except Exception as e:
-        error_msg = f"Sorry, an error occurred: {str(e)}"
-        await safe_send_message(thinking_msg, error_msg, event=event)
-            
-        print(f"Error in deepseek_api_handler: {str(e)}")
+        print(f"Error in ping handler: {e}")
+        try:
+            await event.reply(f"Error: {str(e)}")
+        except Exception as reply_error:
+            print(f"Unable to send error message: {reply_error}")
 
-@client.on(events.NewMessage(pattern=r'^/gpt (.+)'))
-async def github_api_handler(event):
+@client.on(events.NewMessage(pattern=r'^/env$'))
+async def env_handler(event):
+    try:
+        # Get environment information
+        environment = os.getenv('ENVIRONMENT', 'Not set')
+              
+        # Format response
+        response = f"Environment: {environment.upper()}\n\n"
+        
+        # System information
+        system_info = f"OS: {os.name} {platform.system()} {platform.release()}"
+        python_info = f"Python: {platform.python_version()}"
+        
+        # Bot status
+        bot_info = "Bot is running"
+        llm_status = "LLM Client: Connected" if _llm_client_initialized else "LLM Client: Not initialized"
+        
+        # Add system info to response
+        response += f"{system_info}\n{python_info}\n\n{bot_info}\n{llm_status}"
+        
+        await event.reply(response)
+    except FloodWaitError as e:
+        wait_seconds = e.seconds
+        print(f"FloodWaitError in env_handler: {wait_seconds}s wait required")
+        
+        try:
+            await event.respond(f"Telegram rate limit triggered, need to wait {wait_seconds} seconds. Please try again later.")
+        except Exception as respond_error:
+            print(f"Unable to send rate limit notification: {respond_error}")
+    except Exception as e:
+        print(f"Error in env handler: {e}")
+        try:
+            await event.reply(f"Error: {str(e)}")
+        except Exception as reply_error:
+            print(f"Unable to send error message: {reply_error}")
+
+@client.on(events.NewMessage(pattern=r'^/hi_dog$'))
+async def hi_dog_handler(event):
+    try:
+        # Dog ASCII arts
+        dog_arts = [
+            """
+⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⣀⣀⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⢀⡤⠞⠋⠉⠀⠀⠀⠀⠀⠀⠀⠉⠙⠳⢄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⣠⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠱⡆⠀⠀⠀⠀⠀⠀⠀⠀
+⢠⠇⠀⢰⠆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠰⡄⠀⢸⡀⠀⠀⠀⠀⠀⠀⠀    Sit, Stay,'N Play
+⢸⠀⠀⢸⠀⠀⢰⣶⡀⠀⠀⠀⢠⣶⡀⠀⠀⡇⠀⢸⠂⠀⠀⠀⠀⠀⠀⠀
+⠈⢧⣀⢸⡄⠀⠀⠉⠀⠀⠀⠀⠀⠉⠀⠀⢠⡇⣠⡞⠁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠉⠙⣇⠀⠂⠀⠀⢶⣶⣶⠀⠄⠀⠀⣾⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠘⢦⡀⠀⠀⠀⠀⠀⠀⠀⢀⣼⡁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢠⠞⠓⠤⣤⣀⣀⣠⣤⠴⠚⠉⠑⠲⢤⡀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢸⠀⠀⣀⣠⣀⣀⣠⣀⡀⠀⠀⠀⠀⠀⠈⠳⣄⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢸⠀⠰⡇⠀⠈⠁⠀⠈⡧⠀⠀⠀⠀⠀⠀⠀⠈⢦⠀⠀⢠⠖⡆
+⠀⠀⠀⠀⢸⠀⠀⠑⢦⡀⠀⣠⠞⠁⠀⢸⠀⠀⠀⠀⠀⠀⠈⣷⠞⠋⢠⠇
+⠀⠀⠀⠀⢸⠀⠀⠀⠀⠙⡞⠁⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⢹⢀⡴⠋⠀
+⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⡞⠉⠀⠀⠀
+⠀⠀⠀⠀⢸⡀⠀⠀⠀⢠⣧⠀⠀⠀⠀⣸⡀⠀⠀⠀⠀⣠⠞⠁⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠳⠦⠤⠴⠛⠈⠓⠤⠤⠞⠁⠉⠛⠒⠚⠋⠁⠀⠀⠀⠀⠀⠀
+            """,
+            """
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣠⣤⣄⣀⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⠶⠋⠉⠙⢿⣿⣿⣿⣄⠈⢻⣶⠤⣄⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣾⠏⠀⠀⠀⠀⠈⣿⠋⠉⠙⢧⡀⢿⡄⢸⣷⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣾⣿⣷⣄⠀⠀⠀⠀⠀⠀⣴⣶⣶⡄⢸⡇⢸⡟⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⡏⣉⢻⣿⠟⠋⠀⠀⠀⠀⠀⠀⠿⠒⠻⣧⢸⡇⣿⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⡇⢻⡀⠻⡄⠀⣶⣿⣷⠀⠀⠀⣀⡀⠀⠈⠻⣧⢻⣄⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣷⠸⣷⣄⣹⣆⣿⠋⠁⠀⠠⣿⣿⣟⠀⠀⢀⡿⠿⠿⠃⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢿⣄⠀⠈⠉⠛⢷⢰⠆⠀⠀⠀⠛⣿⠗⣺⣿⠁⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠙⠛⢻⣶⣄⣸⠦⠤⠤⠤⠾⠥⠚⠹⣿⣇⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡴⠻⣿⠋⠛⠀⠀⠀⠀⠀⠀⠀⠀⢈⣿⡄⠀⠀⠀⠀
+⠀⣠⢖⣢⠀⢀⠀⠀⢀⣴⣿⠁⠀⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⣧⠀⠀⠀⠀
+⣾⣿⠋⣠⣾⠛⠀⣴⡿⠛⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀
+⠈⠁⣰⡿⠁⢀⣾⠟⠁⠀⢻⣷⡄⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⡘⢿⡆⠀⠀⠀
+⠀⠀⣿⡇⠀⣼⠃⠀⠀⠀⠈⣿⣿⡄⠀⠀⠀⠘⣿⠇⠀⠀⠀⠀⣠⣧⠈⢷⠀⠀⠀
+⠀⠀⣿⣇⢰⣿⠀⠀⠀⠀⠀⣿⣿⣿⡄⠀⠀⠀⡟⠀⠀⠀⣠⣴⣿⠃⠀⠘⡆⠀⠀
+⠀⠀⢹⣿⣾⣧⠀⠀⠀⠀⣸⣿⣿⣿⡇⠀⠀⠀⢹⣦⣴⣾⣿⢿⡿⠀⠀⠀⣧⠀⠀
+⠀⠀⠈⢻⣿⣿⣄⣼⣿⣶⣿⣿⣿⣿⣷⠀⠀⢀⣸⣿⡿⠟⠁⢸⠇⠀⢤⡾⠿⣦⡀
+⠀⠀⠀⠀⠙⢿⡟⠉⠉⠉⠁⠈⠻⡏⠀⠰⠶⠛⠋⢹⡄⠀⠀⠸⡄⢀⠀⢸⡔⣆⢳
+⠀⠀⠀⠀⠀⠀⠹⠤⠼⠤⠼⠷⠞⢷⣀⡀⠀⢰⠀⣦⣷⠀⠀⠀⠉⠙⠒⠚⠳⠞⠋
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠛⠉⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀""",
+"""
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡀⠀⠀⠀⠀
+⠀⠀⠀⠀⢀⡴⣆⠀⠀⠀⠀⠀⣠⡀ ᶻ 𝗓 𐰁 .ᐟ ⣼⣿⡗⠀⠀⠀⠀
+⠀⠀⠀⣠⠟⠀⠘⠷⠶⠶⠶⠾⠉⢳⡄⠀⠀⠀⠀⠀⣧⣿⠀⠀⠀⠀⠀
+⠀⠀⣰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣤⣤⣤⣤⣤⣿⢿⣄⠀⠀⠀⠀
+⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣧⠀⠀⠀⠀⠀⠀⠙⣷⡴⠶⣦
+⠀⠀⢱⡀⠀⠉⠉⠀⠀⠀⠀⠛⠃⠀⢠⡟⠀⠀⠀⢀⣀⣠⣤⠿⠞⠛⠋
+⣠⠾⠋⠙⣶⣤⣤⣤⣤⣤⣀⣠⣤⣾⣿⠴⠶⠚⠋⠉⠁⠀⠀⠀⠀⠀⠀
+⠛⠒⠛⠉⠉⠀⠀⠀⣴⠟⢃⡴⠛⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+""",
+"""⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢀⣾⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣠⣤⣤⣼⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀⠀⠀⠀⠀
+⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀
+⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀
+⠀⠀⠀⠘⣿⣿⣿⣿⠟⠁⠀⠀⠀⠹⣿⣿⣿⣿⣿⠟⠁⠀⠀⠹⣿⣿⡿⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣿⣿⣿⡇⠀⠀⠀⢼⣿⠀⢿⣿⣿⣿⣿⠀⣾⣷⠀⠀⢿⣿⣷⠀⠀⠀⠀⠀
+⠀⠀⠀⢠⣿⣿⣿⣷⡀⠀⠀⠈⠋⢀⣿⣿⣿⣿⣿⡀⠙⠋⠀⢀⣾⣿⣿⠀⠀⠀⠀⠀
+⢀⣀⣀⣀⣿⣿⣿⣿⣿⣶⣶⣶⣶⣿⣿⣿⣿⣾⣿⣷⣦⣤⣴⣿⣿⣿⣿⣤⠤⢤⣤⡄
+⠈⠉⠉⢉⣙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣇⣀⣀⣀⡀⠀
+⠐⠚⠋⠉⢀⣬⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⣥⣀⡀⠈⠀⠈⠛
+⠀⠀⠴⠚⠉⠀⠀⠀⠉⠛⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠋⠁⠀⠀⠀⠉⠛⠢⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀""",
+"""
+                             ＿＿
+　　　　　🌸＞　　フ
+　　　　　| 　_　 _ l
+　 　　　／` ミ＿xノ
+　　 　 /　　　 　 |
+　　　 /　 ヽ　　 ﾉ
+　 　 │　　|　|　|
+　／￣|　　 |　|　|
+　| (￣ヽ＿_ヽ_)__)
+　＼二つ"""
+        ]
+        
+        # Choose a random dog art
+        import random
+        dog_art = random.choice(dog_arts)
+        
+        await event.reply(f"Woof! Hello there! 🐶\n{dog_art}")
+    except FloodWaitError as e:
+        wait_seconds = e.seconds
+        print(f"FloodWaitError in hi_dog_handler: {wait_seconds}s wait required")
+        
+        try:
+            await event.respond(f"Telegram rate limit triggered, need to wait {wait_seconds} seconds. Please try again later.")
+        except Exception as respond_error:
+            print(f"Unable to send rate limit notification: {respond_error}")
+    except Exception as e:
+        print(f"Error in hi_dog handler: {e}")
+        try:
+            await event.reply(f"Error: {str(e)}")
+        except Exception as reply_error:
+            print(f"Unable to send error message: {reply_error}")
+
+@client.on(events.NewMessage(pattern=r'^/test$'))
+async def test_handler(event):
+    try:
+        await event.reply("Bot is working! This is a test response.")
+    except Exception as e:
+        print(f"Error in test handler: {e}")
+
+@client.on(events.NewMessage(pattern=r'/deepseek\s*(.*)'))
+async def deepseek_handler(event):
+    """Handler for /deepseek command"""
+    # Get the prompt from the message
     prompt = event.pattern_match.group(1).strip()
-    await handle_llm_request(event, 'github', prompt, system_prompt="You are a helpful AI assistant.", display_name="GitHub model")
+    
+    # If the prompt is empty, return a help message
+    if not prompt:
+        await event.reply("請提供要處理的內容：/deepseek 你的問題或請求")
+        return
+    
+    # Use the handle_llm_request for processing
+    system_prompt = "You are DeepSeek Coder, a helpful coding assistant. Always provide clear and concise responses."
+    await handle_llm_request(event, 'deepseek', prompt, model_name="deepseek-coder-33b-instruct", 
+                           system_prompt=system_prompt, display_name="DeepSeek Coder")
 
-@client.on(events.NewMessage(pattern=r'^/grok (.+)'))
+@client.on(events.NewMessage(pattern=r'/r1\s*(.*)'))
+async def r1_handler(event):
+    """Handler for /r1 command"""
+    # Get the prompt from the message
+    prompt = event.pattern_match.group(1).strip()
+    
+    await event.reply(f"Woof! Hello there! 🐶\n")
+    # If the prompt is empty, return a help message
+    if not prompt:
+        await event.reply("請提供要處理的內容：/r1 你的問題或請求")
+        return
+    
+    # Use the handle_llm_request for processing
+    system_prompt = "You are a helpful AI assistant called R1. Always provide detailed and accurate responses."
+    await handle_llm_request(event, 'deepseek', prompt, model_name="meta-llama/Meta-Llama-3-70B-Instruct",
+                           system_prompt=system_prompt, display_name="R1")
+
+@client.on(events.NewMessage(pattern=r'/gpt\s*(.*)', incoming=True))
+async def gpt_handler(event):
+    """Handler for /gpt command"""
+    # Get the prompt from the message
+    prompt = event.pattern_match.group(1).strip()
+    
+    # If the prompt is empty, return a help message
+    if not prompt:
+        await event.reply("請提供要處理的內容：/gpt 你的問題或請求")
+        return
+    
+    # Use the handle_llm_request for processing
+    system_prompt = "You are a helpful AI assistant called GPT. Always provide clear and comprehensive responses."
+    await handle_llm_request(event, 'gpt', prompt, 
+                           system_prompt=system_prompt, display_name="GPT")
+
+@client.on(events.NewMessage(pattern=r'/grok\s*(.*)', incoming=True))
 async def grok_api_handler(event):
+    """Handler for /grok command"""
+    # Get the prompt from the message
     prompt = event.pattern_match.group(1).strip()
-    await handle_llm_request(event, 'grok', prompt, system_prompt="You are a helpful AI assistant.", display_name="Grok")
+    
+    # If the prompt is empty, return a help message
+    if not prompt:
+        await event.reply("請提供要處理的內容：/grok 你的問題或請求")
+        return
+    
+    # Use the handle_llm_request for processing
+    system_prompt = "You are a helpful AI assistant called Grok. Always provide clear, detailed and accurate responses."
+    await handle_llm_request(event, 'grok3', prompt, 
+                           system_prompt=system_prompt, display_name="Grok")
 
 @client.on(events.NewMessage(pattern=r'^/grok_think (.+)'))
 async def grok_think_api_handler(event):
-    prompt = event.pattern_match.group(1).strip()
-    await handle_grok3_stream_request(event, prompt)
+    try:
+        prompt = event.pattern_match.group(1).strip()
+        await handle_grok3_stream_request(event, prompt)
+    except FloodWaitError as e:
+        # Directly handle top-level FloodWaitError
+        wait_seconds = e.seconds
+        print(f"FloodWaitError in grok_think_api_handler: {wait_seconds}s wait required")
+        
+        try:
+            # Try to send a notification instead of retrying immediately
+            await event.respond(f"Telegram rate limit triggered, need to wait {wait_seconds} seconds. Please try again later.")
+        except Exception as respond_error:
+            print(f"Unable to send rate limit notification: {respond_error}")
+    except Exception as e:
+        print(f"Unhandled exception in grok_think_api_handler: {e}")
+        import traceback
+        traceback.print_exc()
+
+async def process_stream_with_updates(message_obj, stream_generator, min_update_interval=1.5):
+    """
+    Process a streaming response and update the message with chunks
+    
+    Args:
+        message_obj: The Telegram message object to update
+        stream_generator: Generator yielding chunks of text
+        min_update_interval: Minimum time between updates in seconds
+    """
+    full_response = ""
+    last_update_time = time.time()
+    error_message = None
+    
+    try:
+        for chunk in stream_generator:
+            if chunk is None:
+                continue
+                
+            # Check if chunk contains an error message
+            if isinstance(chunk, str) and (chunk.startswith("Error:") or chunk.startswith("Sorry, an error occurred")):
+                error_message = chunk
+                break
+                
+            # Add chunk to full response
+            if isinstance(chunk, str):
+                full_response += chunk
+            
+            # Only update if enough time has passed since the last update
+            current_time = time.time()
+            if current_time - last_update_time >= min_update_interval:
+                try:
+                    # Check if response is too long for a single message
+                    if len(full_response) > 4000:
+                        # Create a temporary file in memory
+                        file_obj = io.BytesIO(full_response.encode('utf-8'))
+                        file_obj.name = "response.txt"
+                        
+                        # Edit the message to send the file
+                        await message_obj.edit(file=file_obj)
+                    else:
+                        await message_obj.edit(full_response)
+                        
+                    last_update_time = current_time
+                except FloodWaitError as e:
+                    print(f"FloodWaitError in stream update: {e.seconds}s wait required")
+                    await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    if "not modified" not in str(e).lower():
+                        print(f"Error updating message in stream: {e}")
+    except Exception as e:
+        print(f"Error in process_stream_with_updates: {e}")
+        error_message = f"Error processing stream: {str(e)}"
+    
+    # Handle final response
+    if error_message:
+        try:
+            await message_obj.edit(error_message)
+        except Exception as e:
+            print(f"Error sending error message: {e}")
+    elif full_response:
+        try:
+            # Check if response is too long for a single message
+            if len(full_response) > 4000:
+                # Create a temporary file in memory
+                file_obj = io.BytesIO(full_response.encode('utf-8'))
+                file_obj.name = "response.txt"
+                
+                # Edit the message to send the file
+                await message_obj.edit(file=file_obj)
+            else:
+                await message_obj.edit(full_response)
+        except Exception as e:
+            print(f"Error sending final response: {e}")
+    else:
+        try:
+            await message_obj.edit("No response received from API.")
+        except Exception as e:
+            print(f"Error sending no response message: {e}")
+
+async def show_limited_thinking_animation(message, max_updates=5, interval=3):
+    """
+    Show limited thinking animation on a message
+    
+    Args:
+        message: The message object to animate
+        max_updates: Maximum number of animation updates
+        interval: Seconds between updates
+    """
+    thinking_frames = [
+        "Thinking.",
+        "Thinking..",
+        "Thinking...",
+        "Thinking....",
+    ]
+    
+    try:
+        for i in range(max_updates):
+            frame = thinking_frames[i % len(thinking_frames)]
+            try:
+                await message.edit(frame)
+            except FloodWaitError as e:
+                print(f"FloodWaitError in thinking animation: {e.seconds}s wait required")
+                await asyncio.sleep(e.seconds)
+            except Exception as e:
+                if "not modified" not in str(e).lower():
+                    print(f"Error updating thinking animation: {e}")
+            
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        # Animation was cancelled, this is normal
+        return
+    except Exception as e:
+        print(f"Error in thinking animation: {e}")
 
 async def handle_grok3_stream_request(event, prompt):
     try:
@@ -696,6 +759,8 @@ async def handle_grok3_stream_request(event, prompt):
         thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
     
     error_occurred = False
+    max_retries = 3
+    retry_delay = 2
     
     try:
         if llm_client.environment.lower() == 'test':
@@ -704,12 +769,115 @@ async def handle_grok3_stream_request(event, prompt):
             await safe_send_message(thinking_msg, response)
             return
             
-        model = "grok-3-reasoner"
-        system_prompt = "You are a helpful AI assistant with reasoning capabilities. Think through problems step by step and explore different aspects of the question. Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
-        stream_generator = llm_client.call_grok3_stream(system_prompt, prompt, model_name=model)
-        
-        await process_stream_with_updates(thinking_msg, stream_generator)
+        # Check if Grok API key is available
+        if not llm_client.grok_api_key:
+            error_msg = "Grok API key not found. Please set GROK_API_KEY in your environment variables or credentials file."
+            await safe_send_message(thinking_msg, error_msg, event=event)
+            return
             
+        model = "grok-3-reasoner"
+        system_prompt = "You are a helpful AI assistant with reasoning capabilities. Think through problems step by step and explore different aspects of the question. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
+        
+        # Start with animation
+        animation_task = asyncio.create_task(show_limited_thinking_animation(thinking_msg))
+        
+        # Ensure LLM client is initialized
+        ensure_llm_client_initialized()
+        
+        # Try using Grok API
+        grok_success = False
+        for attempt in range(max_retries):
+            try:
+                # Show attempt count
+                if attempt > 0:
+                    try:
+                        await thinking_msg.edit(f"Grok API request in progress... (attempt {attempt + 1}/{max_retries})")
+                    except:
+                        pass  # Ignore edit errors
+                
+                # Set a timeout for the API call
+                stream_generator = llm_client.call_grok3_stream(system_prompt, prompt, model_name=model)
+                
+                # Cancel animation when we get the first response
+                animation_task.cancel()
+                
+                # Process the stream with a timeout
+                async with asyncio.timeout(180):  # Increased to 180 seconds timeout
+                    await process_stream_with_updates(thinking_msg, stream_generator)
+                grok_success = True
+                return  # If successful, return directly
+                
+            except asyncio.TimeoutError:
+                error_str = "Request timed out, possibly due to high server load"
+                if attempt < max_retries - 1:
+                    retry_wait = retry_delay * (2 ** attempt)  # Exponential backoff
+                    try:
+                        await thinking_msg.edit(f"API request timed out, retrying in {retry_wait} seconds... (attempt {attempt + 1}/{max_retries})")
+                    except Exception as edit_error:
+                        print(f"Error editing message during retry: {edit_error}")
+                    await asyncio.sleep(retry_wait)
+                    continue
+                else:
+                    try:
+                        await thinking_msg.edit("Grok API request timed out multiple times, switching to DeepSeek model...")
+                    except:
+                        pass
+                    break
+                    
+            except Exception as e:
+                error_str = str(e)
+                if "timed out" in error_str.lower() or "timeout" in error_str.lower() or "502" in error_str:
+                    if attempt < max_retries - 1:
+                        retry_wait = retry_delay * (2 ** attempt)  # Exponential backoff
+                        try:
+                            await thinking_msg.edit(f"Connection error, retrying in {retry_wait} seconds... (attempt {attempt + 1}/{max_retries})")
+                        except Exception as edit_error:
+                            print(f"Error editing message during retry: {edit_error}")
+                        await asyncio.sleep(retry_wait)
+                        continue
+                    else:
+                        # All retries have failed
+                        try:
+                            await thinking_msg.edit("Grok API currently unavailable, switching to DeepSeek model...")
+                        except Exception as edit_error:
+                            print(f"Error editing message after all retries: {edit_error}")
+                        break
+                elif "Content of the message was not modified" in error_str:
+                    # If it's a message not modified error, try using the backup model
+                    print("Message not modified error detected. Switching to DeepSeek model...")
+                    try:
+                        await thinking_msg.edit("Message update error. Switching to DeepSeek model...")
+                    except Exception as edit_error:
+                        print(f"Error editing message for model switch: {edit_error}")
+                    break
+                else:
+                    error_msg = f"Sorry, an error occurred: {str(e)}"
+                    await safe_send_message(thinking_msg, error_msg, event=event)
+                    error_occurred = True
+                    break
+        
+        # If Grok API failed, try using backup model
+        if not grok_success:
+            try:
+                # Use DeepSeek as backup model
+                model = "deepseek-coder-33b-instruct"
+                stream_generator = llm_client.call_deepseek_stream(prompt, model=model, mode="reasoner")
+                
+                # Show message that we're using the backup model
+                try:
+                    await thinking_msg.edit("Using DeepSeek model to process request...")
+                except:
+                    pass
+                
+                # Process streaming response
+                await process_stream_with_updates(thinking_msg, stream_generator)
+                return
+                
+            except Exception as e:
+                error_msg = f"Both Grok API and DeepSeek model failed. Error: {str(e)}"
+                await safe_send_message(thinking_msg, error_msg, event=event)
+                error_occurred = True
+                
     except FloodWaitError as e:
         wait_seconds = e.seconds
         print(f"FloodWaitError when updating response: {wait_seconds} seconds wait required")
@@ -724,156 +892,79 @@ async def handle_grok3_stream_request(event, prompt):
         error_occurred = True
             
         print(f"Error in grok3_stream_handler: {str(e)}")
-
-@client.on(events.NewMessage(pattern=r'^/env'))
-async def check_environment(event):
-    current_env = llm_client.environment
-    env_file_setting = os.getenv('ENVIRONMENT')
-    
-    await event.reply(f"Current environment: {current_env}\n")
-
-async def split_and_send_long_message(original_msg, header, content, parse_mode=None):
-    TELEGRAM_MAX_LENGTH = 4000
-    chunk_size = TELEGRAM_MAX_LENGTH - 20
-    
-    total_parts = (len(content) + chunk_size - 1) // chunk_size
-    
-    first_chunk = content[:chunk_size]
-    await original_msg.respond(f"{header}\n\n{first_chunk}", parse_mode=parse_mode)
-    
-    remaining = content[chunk_size:]
-    current_part = 2
-    
-    while remaining:
-        current_chunk = remaining[:chunk_size]
-        remaining = remaining[chunk_size:]
         
-        part_header = f"{header} (Part {current_part}/{total_parts})"
-        await original_msg.respond(f"{part_header}\n\n{current_chunk}", parse_mode=parse_mode)
-        current_part += 1
-        
-        await asyncio.sleep(1.5)
-
-@client.on(events.NewMessage(pattern=r'^/different (.+)'))
-async def different_models_handler(event):
-    prompt = event.pattern_match.group(1).strip()
-    
-    r1_msg = await event.respond("<b>Deepseek R1 Output:</b>\n\nLoading...", parse_mode='html')
-    grok_msg = await event.respond("<b>Grok3-Think Model Output:</b>\n\nLoading...", parse_mode='html')
-    analysis_msg = await event.respond("<b>Model Comparison Analysis(GPT-4o):</b>\n\nLoading...", parse_mode='html')
-    
-    asyncio.create_task(process_different_responses(prompt, r1_msg, grok_msg, analysis_msg))
-
-async def process_different_responses(prompt, r1_msg, grok_msg, analysis_msg):
-    responses = {}
-    
-    if llm_client.environment.lower() == 'test':
-        test_response = "This is a test response. In test mode, we simulate model responses with this message."
-        
-        await safe_send_message(r1_msg, f"<b>Deepseek R1 Output:</b>\n\n{test_response}", parse_mode='html')
-        await safe_send_message(grok_msg, f"<b>Grok Think Output:</b>\n\n{test_response}", parse_mode='html')
-        await safe_send_message(analysis_msg, f"<b>Model Comparison Analysis:</b>\n\nTest analysis comparing the two identical responses.", parse_mode='html')
-        return
-    
-    try:
-        model = "deepseek-coder-33b-instruct"
-        
-        r1_generator = llm_client.call_deepseek_stream(prompt, model=model, mode="reasoner")
-        
-        r1_response = await process_stream_without_updates(r1_generator)
-        responses['r1'] = r1_response
-        
-        TELEGRAM_MAX_LENGTH = 4000
-        if len(r1_response) > TELEGRAM_MAX_LENGTH:
-            truncated = r1_response[:TELEGRAM_MAX_LENGTH - 50] + "...\n\n[Response too long, full response will be sent as replies]"
-            await safe_send_message(r1_msg, f"<b>R1 Output:</b>\n\n{truncated}", parse_mode='html')
-            await split_and_send_long_message(r1_msg, "<b>R1 Output (continued):</b>", r1_response, parse_mode='html')
-        else:
-            await safe_send_message(r1_msg, f"<b>R1 Output:</b>\n\n{r1_response}", parse_mode='html')
-    except Exception as e:
-        print(f"Error getting R1 response: {str(e)}")
-        await safe_send_message(r1_msg, f"<b>R1 Output Error:</b>\n\n{str(e)}", parse_mode='html')
-        responses['r1'] = f"Error: {str(e)}"
-    
-    try:
-        model = "grok-3-reasoner"
-        system_prompt = "You are a helpful AI assistant with reasoning capabilities. Think through problems step by step and explore different aspects of the question. IMPORTANT: Your response MUST NOT exceed 3800 characters in length. If you find yourself approaching this limit, summarize remaining information concisely."
-        
-        grok_generator = llm_client.call_grok3_stream(system_prompt, prompt, model_name=model)
-        
-        grok_response = await process_stream_without_updates(grok_generator)
-        responses['grok'] = grok_response
-        
-        GROK_MAX_LENGTH = 3999
-        
-        if len(grok_response) > GROK_MAX_LENGTH:
-            truncated_grok = grok_response[:GROK_MAX_LENGTH - 50] + "...\n\n[Response truncated to 3800 characters]"
-            await safe_send_message(grok_msg, f"<b>Grok Think Output:</b>\n\n{truncated_grok}", parse_mode='html')
-            responses['grok'] = truncated_grok
-        else:
-            await safe_send_message(grok_msg, f"<b>Grok Think Output:</b>\n\n{grok_response}", parse_mode='html')
-    except Exception as e:
-        print(f"Error getting Grok Think response: {str(e)}")
-        await safe_send_message(grok_msg, f"<b>Grok Think Output Error:</b>\n\n{str(e)}", parse_mode='html')
-        responses['grok'] = f"Error: {str(e)}"
-    
-    if 'r1' in responses and 'grok' in responses and not (responses['r1'].startswith('Error') or responses['grok'].startswith('Error')):
+    if error_occurred:
+        # Provide additional information about the error
         try:
-            system_prompt = """
-            You are an AI comparison expert. You will be provided with:
-            1. A user's question
-            2. Response from Model A (R1)
-            3. Response from Model B (Grok)
-            
-            Your task is to:
-            1. Compare the responses objectively
-            2. Assess the similarity of the two LLM model outputs (0-100%)
-             3. Provide a brief summary of the differences
-            4. Identify strengths and weaknesses in each response
-            5. Determine which model provided the more comprehensive or accurate response
-
-            Format your analysis with clear sections and be impartial in your evaluation.
-            """
-            
-            user_prompt = f"""
-            USER QUESTION:
-            {prompt}
-            
-            MODEL A (R1) RESPONSE:
-            {responses['r1']}
-            
-            MODEL B (GROK) RESPONSE:
-            {responses['grok']}
-            """
-            
-            comparison_result = await asyncio.to_thread(
-                llm_client.call_github, 
-                system_prompt, 
-                user_prompt,
-                model_name="gpt-4o-mini"
-            )
-            
-            ANALYSIS_MAX_LENGTH = 4000
-            if len(comparison_result) > ANALYSIS_MAX_LENGTH:
-                truncated = comparison_result[:ANALYSIS_MAX_LENGTH - 50] + "...\n\n[Analysis too long, full analysis will be sent as replies]"
-                await safe_send_message(analysis_msg, f"<b>Model Comparison Analysis(ChatGPT-4o):</b>\n\n{truncated}", parse_mode='html')
-                await split_and_send_long_message(analysis_msg, "<b>Model Comparison Analysis (continued):</b>", comparison_result, parse_mode='html')
-            else:
-                await safe_send_message(analysis_msg, f"<b>Model Comparison Analysis(ChatGPT-4o):</b>\n\n{comparison_result}", parse_mode='html')
-                
+            await asyncio.sleep(1)  # Small delay before sending additional info
+            await event.reply("If you continue to experience Grok API issues, please try:\n\n"
+                             "1. Using other models (e.g., /deepseek or /gpt)\n"
+                             "2. Wait a few minutes and try again\n"
+                             "3. Check if Grok API service is available")
         except Exception as e:
-            print(f"Error getting comparison analysis: {str(e)}")
-            await safe_send_message(analysis_msg, f"<b>Model Comparison Analysis Error:</b>\n\nUnable to generate comparison: {str(e)}", parse_mode='html')
-    else:
-        await safe_send_message(analysis_msg, f"<b>Model Comparison Analysis:</b>\n\nUnable to generate comparison because one or both models returned an error.", parse_mode='html')
+            print(f"Error sending additional error information: {str(e)}")
+
+@client.on(events.NewMessage(pattern=r'^/\.env$'))
+async def dotenv_handler(event):
+    # Call the same handler as /env
+    await env_handler(event)
 
 async def main():
     environment = os.getenv('ENVIRONMENT')
-    print(f"Starting userbot in {environment.upper()} mode...")
+    print(f"Starting userbot in {environment.upper() if environment else 'PROD'} mode...")
     
-    await client.start(phone=PHONE_NUMBER)
-    print("Userbot is running...")
-    await client.run_until_disconnected()
+    # Ensure llm_client is initialized
+    ensure_llm_client_initialized()
+    
+    # Check if we're running in a non-interactive environment (like a server)
+    is_interactive = os.isatty(sys.stdin.fileno()) if hasattr(sys, 'stdin') and hasattr(sys.stdin, 'fileno') else False
+    
+    # Check if client is connected
+    try:
+        if not client.is_connected():
+            print("Telegram client not connected, connecting...")
+            if not is_interactive:
+                print("Running in non-interactive mode, using session-only authentication")
+                # In non-interactive mode, only use existing session
+                try:
+                    # Start without phone to avoid code prompt
+                    await client.start()
+                    if not await client.is_user_authorized():
+                        print("ERROR: Not authorized and cannot request code in non-interactive mode")
+                        print("Please run scripts/setup_session.py on a machine with an interactive terminal first")
+                        return False
+                except Exception as e:
+                    print(f"Failed to start client in non-interactive mode: {str(e)}")
+                    return False
+            else:
+                # Interactive mode - normal flow with phone parameter
+                try:
+                    await client.start(phone=PHONE_NUMBER)
+                except Exception as e:
+                    print(f"Error starting client: {str(e)}")
+                    return False
+        else:
+            print("Telegram client is connected")
+        
+        print("Userbot is running...")
+        await client.run_until_disconnected()
+        return True
+    except Exception as e:
+        print(f"Error starting Userbot: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
+# If this file is run directly, run the main function
+# If imported as a module, only define functions without executing
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Unhandled exception: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

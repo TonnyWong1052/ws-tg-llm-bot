@@ -1,74 +1,93 @@
-# TG-Bot
+# Multi-Platform LLM Chat Bot
 
-## What is this?
-This is a Telegram bot that uses LLM (Large Language Models) like DeepSeek, Grok and ChatGPT. It can answer questions and fetch news from Unwire.hk.
+A multi-platform LLM chat bot framework that currently supports Telegram, with plans to support WhatsApp and other platforms in the future.
 
-## Requirements
-- Python 3.8 or newer
-- A Telegram account
-- API keys for the LLMs you want to use
+## Known issue
+1. Logging Save Problem
+2. Sometimes LLM response tokens are too large for Telegram's 4096 characters per message limit
 
-## Setup
+## Directory Structure
 
-### Local Setup
+```
+src/
+├── core/                   # Core framework components
+│   ├── __init__.py
+│   ├── config.py           # Configuration loading and management
+│   ├── bot_base.py         # Base bot class
+│   ├── message_handler.py  # Basic message handling logic
+│   └── command_registry.py # Command registration system
+├── api/                    # API clients and providers
+│   ├── __init__.py
+│   ├── llm_client.py       # Unified LLM client
+│   └── llm_providers/      # Specific implementations for LLM providers
+│       ├── __init__.py
+│       ├── openai.py
+│       ├── deepseek.py
+│       ├── github.py
+│       └── grok.py
+├── utils/                  # Utility functions
+│   ├── __init__.py
+│   └── animations.py       # Animation and UI-related features
+├── services/               # External service integrations
+│   ├── __init__.py
+│   └── unwire_fetch.py     # Unwire news service
+├── platforms/              # Platform-specific implementations
+│   ├── __init__.py
+│   ├── telegram/           # Telegram platform
+│   │   ├── __init__.py
+│   │   ├── client.py       # Telegram client
+│   │   ├── handlers.py     # Message handlers
+│   │   └── commands/       # Command handlers (to be implemented)
+│   └── whatsapp/           # WhatsApp platform (future)
+│       └── __init__.py
+└── main.py                 # Application entry point
+```
+
+## Installation
+
 1. Clone this repository
-2. Create a `.env` file in the `config` folder with your API keys
+2. Install dependencies: `pip install -r requirements.txt`
+3. Set up environment variables or create a `config/.env` file:
+
 ```
 API_ID=your_telegram_api_id
 API_HASH=your_telegram_api_hash
 PHONE_NUMBER=your_phone_number
-ENVIRONMENT=prod
+OPENAI_API_KEY=your_openai_key
 DEEPSEEK_API_KEY=your_deepseek_key
 GITHUB_API_KEY=your_github_key
 GROK_API_KEY=your_grok_key
-```
-3. Install the requirements: `pip install -r requirements.txt`
-
-### Azure VM Setup
-1. Make sure you have Terraform and Azure CLI installed
-2. Run these commands:
-```
-terraform init
-terraform apply
+ENVIRONMENT=prod  # or 'test' for testing
 ```
 
-or
+## Running
 
+Start the Telegram bot (default):
+
+```bash
+python src/main.py
 ```
-bash ./scripts/az_deploy.sh
+
+Or specify platforms:
+
+```bash
+python src/main.py --platforms telegram
 ```
 
-## Demo
-Feel free to call me with the command for testing:
-https://t.me/SecondarySchoolDog
+## Adding a New Platform
 
-## Commands
-- `/deepseek [question]` - Ask DeepSeek AI a question
-- `/r1 [question]` - Use DeepSeek R1 to think step by step
-- `/gpt [question]` - Ask ChatGPT a question
-- `/grok [question]` - Ask Grok AI a question
-- `/grok_think [question]` - Use Grok to think step by step
-- `/unwire` - Get Today news from Unwire.hk
-- `/unwire 2025-04-15` - Get news from a specific date
-- `/ping` - Get network information
+1. Create a new platform directory under `src/platforms/`
+2. Implement platform-specific client and handlers
+3. Register the new platform in `src/main.py`
 
+## Adding New Commands
 
-## Known Issues
-1. Logging Save Problem
-2. Sometimes LLM response tokens are too large for Telegram's 4096 characters per message limit
+Use the command registry decorator:
 
+```python
+from core.command_registry import command_registry
 
-## Project Structure
-```
-TG-bot/
-├── config/            # Configuration files
-├── scripts/           # Shell scripts
-├── src/               # Source code
-│   ├── api/           # API integrations
-│   ├── services/      # Service modules
-│   ├── userbot/       # Telegram bot code
-│   └── utils/         # Helper functions
-├── main.tf            # Terraform config
-├── variables.tf       # Terraform variables
-└── requirements.txt   # Python required package
+@command_registry.register('example', description='Example command')
+async def example_handler(event):
+    await event.reply('This is an example command!')
 ```

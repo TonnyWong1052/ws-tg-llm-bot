@@ -292,12 +292,12 @@ class LLMClient:
         if not grok_api_key:
             return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
         
-        # Append HTML formatting requirements to the system prompt
+        # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
         enhanced_system_prompt = system_prompt
-        if system_prompt and not "Format your response using HTML" in system_prompt:
-            enhanced_system_prompt = system_prompt + " Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+        if system_prompt and not "Format your response" in system_prompt:
+            enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         elif not system_prompt:
-            enhanced_system_prompt = "You are a helpful AI assistant. Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+            enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         
         # Based on common OpenAI-compatible API patterns
         headers = {
@@ -321,9 +321,8 @@ class LLMClient:
             "max_tokens": 1000
         }
         
-        # Assuming the Grok3 API endpoint follows standard OpenAI format
-        # The actual endpoint might need to be adjusted based on the provider's documentation
-        api_url = "https://api.groq.com/openai/v1/chat/completions"
+        # Using the correct endpoint from API documentation
+        api_url = "https://chatapi.littlewheat.com/v1/chat/completions"
         
         try:
             response = requests.post(
@@ -355,15 +354,15 @@ class LLMClient:
         if not grok_api_key:
             return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
         
-        # Append HTML formatting requirements to the system prompt
+        # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
         enhanced_system_prompt = system_prompt
-        if system_prompt and not "Format your response using HTML" in system_prompt:
-            enhanced_system_prompt = system_prompt + " Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+        if system_prompt and not "Format your response" in system_prompt:
+            enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         elif not system_prompt:
-            enhanced_system_prompt = "You are a helpful AI assistant. Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+            enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         
         client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
+            base_url="https://chatapi.littlewheat.com/v1",
             api_key=grok_api_key,
         )
 
@@ -410,12 +409,12 @@ class LLMClient:
             if not grok_api_key:
                 return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
             
-            # Append HTML formatting requirements to the system prompt
+            # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
             enhanced_system_prompt = system_prompt
-            if system_prompt and not "Format your response using HTML" in system_prompt:
-                enhanced_system_prompt = system_prompt + " Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+            if system_prompt and not "Format your response" in system_prompt:
+                enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
             elif not system_prompt:
-                enhanced_system_prompt = "You are a helpful AI assistant. Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+                enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
             
             # Setup messages with enhanced system prompt
             messages = []
@@ -480,6 +479,8 @@ class LLMClient:
         """
         import http.client
         import json
+        import time
+        import socket
         
         # Get API key from environment variables
         grok_api_key = self.grok_api_key
@@ -488,12 +489,12 @@ class LLMClient:
             yield "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
             return
         
-        # Append HTML formatting requirements to the system prompt
+        # 移除 HTML 格式要求，改為使用純文本格式
         enhanced_system_prompt = system_prompt
-        if system_prompt and not "Format your response using HTML" in system_prompt:
-            enhanced_system_prompt = system_prompt + " Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+        if system_prompt and not "Format your response" in system_prompt:
+            enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         elif not system_prompt:
-            enhanced_system_prompt = "You are a helpful AI assistant. Format your response using HTML tags for better presentation. Use <h1>, <h2>, <h3> for headings, <p> for paragraphs, <ul> and <li> for lists, <b> for bold text, <i> for italics, and <code> for code blocks. Ensure your HTML formatting is clean and valid."
+            enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         
         # Setup messages with enhanced system prompt
         messages = []
@@ -509,116 +510,188 @@ class LLMClient:
                 "content": user_prompt
         })
         
-        try:
-            # Print request details for debugging
-            print(f"Making request to chatapi.littlewheat.com with model: {model_name}")
-            print(f"Messages: {messages}")
+        # Maximum number of retries
+        max_retries = 5  # 增加最大重試次數
+        retry_count = 0
+        retry_delay = 2  # seconds
+        
+        while retry_count < max_retries:
+            try:
+                # Print request details for debugging
+                print(f"Making request to chatapi.littlewheat.com with model: {model_name} (attempt {retry_count + 1}/{max_retries})")
+                print(f"Messages: {messages}")
 
-            # Setup connection to the specific API endpoint
-            conn = http.client.HTTPSConnection("chatapi.littlewheat.com")
-            
-            # Prepare payload for streaming
-            payload = json.dumps({
-                "model": model_name,  # Use grok-3-reasoner directly
-                "messages": messages,
-                "stream": True,
-                "temperature": 0.7,
-                "max_tokens": 1000
-            })
-            
-            # Set headers with the API key
-            headers = {
-                'Authorization': f'Bearer {grok_api_key}',
-                'Content-Type': 'application/json'
-            }
-            
-            # Make the streaming API request
-            conn.request("POST", "/v1/chat/completions", payload, headers)
-            response = conn.getresponse()
-            
-            # Check for errors
-            if response.status != 200:
-                error_data = response.read().decode('utf-8', errors='replace')
-                error_msg = f"Grok API returned error {response.status}: {error_data}"
-                yield error_msg
-                return
-            
-            # Process the streaming response
-            collected_content = ""
-            buffer = ""
-            
-            # Read larger chunks instead of byte-by-byte to avoid UTF-8 decoding issues
-            while True:
-                chunk = response.read(4096)  # Read 4KB at a time
-                if not chunk:
-                    break
+                # 使用更長的超時時間
+                socket.setdefaulttimeout(120)  # 設置全局套接字超時為120秒
+                # Setup connection to the specific API endpoint with longer timeout
+                conn = http.client.HTTPSConnection("chatapi.littlewheat.com", timeout=120)
                 
-                # Decode with error handling
-                try:
-                    text = chunk.decode('utf-8', errors='replace')
-                    buffer += text
-                except Exception as e:
-                    print(f"Warning: Error decoding chunk: {e}")
-                    continue
+                # Prepare payload for streaming
+                payload = json.dumps({
+                    "model": model_name,  # Use grok-3-reasoner directly
+                    "messages": messages,
+                    "stream": True,
+                    "temperature": 0.7,
+                    "max_tokens": 1000
+                })
                 
-                # Process complete lines
-                while '\n' in buffer:
-                    pos = buffer.find('\n')
-                    line = buffer[:pos]
-                    buffer = buffer[pos + 1:]
+                # Set headers with the API key
+                headers = {
+                    'Authorization': f'Bearer {grok_api_key}',
+                    'Content-Type': 'application/json'
+                }
+                
+                # Make the streaming API request
+                conn.request("POST", "/v1/chat/completions", payload, headers)
+                response = conn.getresponse()
+                
+                # Check for errors
+                if response.status != 200:
+                    error_data = response.read().decode('utf-8', errors='replace')
+                    error_msg = f"Grok API returned error {response.status}: {error_data}"
                     
-                    if not line.strip():
-                        continue
-                    
-                    if line.startswith('data: '):
-                        line = line[6:].strip()  # Skip "data: " prefix
-                        
-                        if line == '[DONE]':
-                            # Final yield of complete response
-                            if collected_content:
-                                yield collected_content
-                            return
-                        
-                        try:
-                            json_response = json.loads(line)
-                            if "choices" in json_response and json_response["choices"]:
-                                delta = json_response["choices"][0].get("delta", {})
-                                if "content" in delta and delta["content"]:
-                                    new_content = delta["content"]
-                                    collected_content += new_content
-                                    yield collected_content
-                        except json.JSONDecodeError as je:
-                            print(f"Warning: JSON decode error: {je}. Input: {line[:100]}...")
+                    # If it's a server error (5xx), retry
+                    if 500 <= response.status < 600:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            print(f"Server error {response.status}, retrying in {retry_delay} seconds... (attempt {retry_count+1}/{max_retries})")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
                             continue
-            
-            # Process any remaining data in the buffer
-            if buffer.strip():
-                for line in buffer.strip().split('\n'):
-                    if line.startswith('data: '):
-                        line = line[6:].strip()
-                        
-                        if line == '[DONE]':
+                    
+                    # If we've exhausted retries or it's a client error, yield the error message
+                    yield error_msg
+                    return
+                
+                # Process the streaming response
+                collected_content = ""
+                buffer = ""
+                last_activity_time = time.time()
+                activity_timeout = 60  # 60秒無活動超時
+                
+                # Read larger chunks instead of byte-by-byte to avoid UTF-8 decoding issues
+                while True:
+                    # 檢查無活動超時
+                    if time.time() - last_activity_time > activity_timeout:
+                        print(f"No activity from Grok API for {activity_timeout} seconds, closing connection")
+                        break
+                    
+                    try:
+                        chunk = response.read(4096)  # Read 4KB at a time
+                        if not chunk:
                             break
                         
+                        # 更新上次活動時間
+                        last_activity_time = time.time()
+                        
+                        # Decode with error handling
                         try:
-                            json_response = json.loads(line)
-                            if "choices" in json_response and json_response["choices"]:
-                                delta = json_response["choices"][0].get("delta", {})
-                                if "content" in delta and delta["content"]:
-                                    new_content = delta["content"]
-                                    collected_content += new_content
-                        except json.JSONDecodeError:
+                            text = chunk.decode('utf-8', errors='replace')
+                            buffer += text
+                        except Exception as e:
+                            print(f"Warning: Error decoding chunk: {e}")
                             continue
+                        
+                        # Process complete lines
+                        while '\n' in buffer:
+                            pos = buffer.find('\n')
+                            line = buffer[:pos]
+                            buffer = buffer[pos + 1:]
                             
-            # Make sure we yield the final content
-            if collected_content:
-                yield collected_content
+                            if not line.strip():
+                                continue
+                            
+                            if line.startswith('data: '):
+                                line = line[6:].strip()  # Skip "data: " prefix
+                                
+                                if line == '[DONE]':
+                                    # Final yield of complete response
+                                    if collected_content:
+                                        yield collected_content
+                                    return
+                                
+                                try:
+                                    json_response = json.loads(line)
+                                    if "choices" in json_response and json_response["choices"]:
+                                        delta = json_response["choices"][0].get("delta", {})
+                                        if "content" in delta and delta["content"]:
+                                            new_content = delta["content"]
+                                            collected_content += new_content
+                                            yield collected_content
+                                except json.JSONDecodeError as je:
+                                    print(f"Warning: JSON decode error: {je}. Input: {line[:100]}...")
+                                    continue
+                    except socket.timeout:
+                        # 處理超時
+                        print(f"Socket timeout while reading response, retrying... (attempt {retry_count+1}/{max_retries})")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            break  # 跳出內層循環，重新連接
+                        else:
+                            yield "Error: Read operation timed out after multiple attempts. Please try again later."
+                            return
                 
-        except Exception as e:
-            import traceback
-            print(f"Error streaming from Grok API: {str(e)}")
-            print(traceback.format_exc())
-            yield f"Error streaming from Grok API: {str(e)}"
+                # Process any remaining data in the buffer
+                if buffer.strip():
+                    for line in buffer.strip().split('\n'):
+                        if line.startswith('data: '):
+                            line = line[6:].strip()
+                            
+                            if line == '[DONE]':
+                                break
+                            
+                            try:
+                                json_response = json.loads(line)
+                                if "choices" in json_response and json_response["choices"]:
+                                    delta = json_response["choices"][0].get("delta", {})
+                                    if "content" in delta and delta["content"]:
+                                        new_content = delta["content"]
+                                        collected_content += new_content
+                            except json.JSONDecodeError:
+                                continue
+                                
+                # Make sure we yield the final content
+                if collected_content:
+                    yield collected_content
+                    return
+                    
+            except socket.timeout:
+                print(f"Socket timeout error, retrying... (attempt {retry_count+1}/{max_retries})")
+                retry_count += 1
+                if retry_count < max_retries:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    yield f"Error: Connection to Grok API timed out after {max_retries} attempts. Please try again later."
+                    return
+                    
+            except http.client.HTTPException as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"HTTP error: {e}, retrying in {retry_delay} seconds... (attempt {retry_count+1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    yield f"Error connecting to Grok API after {max_retries} attempts: {str(e)}"
+                    return
+                    
+            except Exception as e:
+                import traceback
+                print(f"Error streaming from Grok API: {str(e)}")
+                print(traceback.format_exc())
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Unexpected error, retrying in {retry_delay} seconds... (attempt {retry_count+1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    yield f"Error streaming from Grok API after {max_retries} attempts: {str(e)}"
+                    return
     
     def call_test(self, prompt=None, delay=4):
         """

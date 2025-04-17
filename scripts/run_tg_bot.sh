@@ -68,6 +68,32 @@ if [ -f ".env" ]; then
     mv .env config/.env
 fi
 
+# Check if the session file exists - if not, try to verify it
+if [ ! -f "session_name.session" ]; then
+    echo "Telegram session file not found. Checking if we can create it..."
+    
+    # Check if we're running interactively
+    if [ -t 0 ]; then
+        echo "Running in interactive mode. Will try to create a session file."
+        echo "You'll need to enter the code sent to your Telegram app."
+        $PYTHON_CMD scripts/setup_session.py
+        
+        if [ $? -ne 0 ]; then
+            echo "❌ Failed to create Telegram session file."
+            echo "This error has been logged to logs/error.log"
+            echo "$(date): Failed to create Telegram session file." >> logs/error.log
+            exit 1
+        fi
+    else
+        echo "❌ Running in non-interactive mode but session file is missing."
+        echo "Please run 'python scripts/setup_session.py' on your local machine first,"
+        echo "then upload the session_name.session file to your server."
+        echo "This error has been logged to logs/error.log"
+        echo "$(date): No session file found and running in non-interactive mode." >> logs/error.log
+        exit 1
+    fi
+fi
+
 # Create a monitoring script to automatically restart the bot if it crashes
 cat > ${PROJECT_ROOT}/scripts/monitor_bot.sh << EOF
 #!/bin/bash
@@ -102,11 +128,16 @@ while true; do
     echo "[\$(date)] Bot restarted with PID \$BOT_PID" >> "\$LOG_DIR/monitor.log"
     
     # Check if the bot started successfully
-    sleep 3
+    sleep 5
     if ! ps -p \$BOT_PID > /dev/null; then
       echo "[\$(date)] Bot failed to start! Check bot_output.log for errors" >> "\$LOG_DIR/monitor.log"
-      echo "[\$(date)] Last 10 lines of bot_output.log:" >> "\$LOG_DIR/monitor.log"
-      tail -n 10 "\$LOG_DIR/bot_output.log" >> "\$LOG_DIR/monitor.log" 2>&1
+      echo "[\$(date)] Last 20 lines of bot_output.log:" >> "\$LOG_DIR/monitor.log"
+      tail -n 20 "\$LOG_DIR/bot_output.log" >> "\$LOG_DIR/monitor.log" 2>&1
+      
+      # Check for authentication error
+      if grep -q "not authorized" "\$LOG_DIR/bot_output.log" || grep -q "EOF when reading a line" "\$LOG_DIR/bot_output.log"; then
+        echo "[\$(date)] Authentication error detected. Please create a valid session file using scripts/setup_session.py" >> "\$LOG_DIR/monitor.log"
+      fi
     fi
   else
     echo "[\$(date)] Bot is running" >> "\$LOG_DIR/monitor.log"
@@ -117,6 +148,17 @@ EOF
 
 chmod +x ${PROJECT_ROOT}/scripts/monitor_bot.sh
 
+# Verify session file before starting
+echo "Verifying Telegram session file..."
+$PYTHON_CMD scripts/setup_session.py --verify
+if [ $? -ne 0 ]; then
+    echo "❌ Telegram session file verification failed."
+    echo "Please run 'python scripts/setup_session.py' to create a valid session."
+    echo "This error has been logged to logs/error.log"
+    echo "$(date): Failed to verify Telegram session file." >> logs/error.log
+    exit 1
+fi
+
 # Start the bot using nohup
 echo "Starting Telegram bot with nohup using $PYTHON_CMD..."
 echo "Full command: nohup $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py > logs/bot_output.log 2>&1"
@@ -124,11 +166,20 @@ nohup $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py > logs/bot_output.log 2>&1 &
 BOT_PID=$!
 
 # Verify the bot started properly
-sleep 3
+sleep 5
 if ! ps -p $BOT_PID > /dev/null; then
     echo "❌ Bot failed to start! Please check logs/bot_output.log for details"
-    echo "Last 10 lines of bot_output.log:"
-    tail -n 10 logs/bot_output.log
+    echo "Last 20 lines of bot_output.log:"
+    tail -n 20 logs/bot_output.log
+    
+    # Check for authentication error specifically
+    if grep -q "not authorized" logs/bot_output.log || grep -q "EOF when reading a line" logs/bot_output.log; then
+        echo ""
+        echo "AUTHENTICATION ERROR DETECTED: The bot needs to authenticate with Telegram."
+        echo "Please run 'python scripts/setup_session.py' on your local machine first,"
+        echo "then upload the session_name.session file to your server."
+    fi
+    
     exit 1
 fi
 
@@ -163,6 +214,15 @@ tail -n 20 logs/bot_output.log 2>/dev/null || echo "No logs found"
 echo ""
 echo "=== Latest Monitor Logs ==="
 tail -n 10 logs/monitor.log 2>/dev/null || echo "No logs found"
+
+echo ""
+echo "=== Session Status ==="
+if [ -f "session_name.session" ]; then
+    echo "✅ Session file exists"
+    stat session_name.session
+else
+    echo "❌ Session file is missing!"
+fi
 EOF
 
 chmod +x ${PROJECT_ROOT}/scripts/check_status.sh

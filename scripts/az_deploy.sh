@@ -4,7 +4,7 @@
 cd "$(dirname "$0")/.." || exit
 PROJECT_ROOT=$(pwd)
 
-# Make directories for logs if they don't exist
+# Create logs directory if it doesn't exist
 mkdir -p logs
 
 # Add error logging function
@@ -13,14 +13,24 @@ log_error() {
     echo "❌ $1"
 }
 
+log_info() {
+    echo "$(date): INFO: $1" | tee -a logs/info.log
+    echo "✅ $1"
+}
+
+log_warning() {
+    echo "$(date): WARNING: $1" | tee -a logs/warning.log
+    echo "⚠️ $1"
+}
+
 # Determine which Python and pip commands to use
-echo "Detecting available Python command..."
+log_info "Detecting available Python command..."
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
-    echo "✅ Found python3 command"
+    log_info "Found python3 command"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
-    echo "✅ Found python command"
+    log_info "Found python command"
 else
     log_error "Neither python3 nor python was found. Please install Python."
     exit 1
@@ -28,7 +38,7 @@ fi
 
 # Check Python version
 PYTHON_VERSION=$($PYTHON_CMD --version)
-echo "Python version: $PYTHON_VERSION"
+log_info "Python version: $PYTHON_VERSION"
 
 # Check if the Python version is adequate - fixed comparison to correctly handle version numbers
 PYTHON_VERSION_NUMBER=$(echo $PYTHON_VERSION | grep -oE '[0-9]+\.[0-9]+')
@@ -39,39 +49,39 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || [ "$PYTHON_MAJOR" -eq 3 -a "$PYTHON_MINOR" -lt 8
     log_error "Python version $PYTHON_VERSION_NUMBER is too old. Need 3.8 or newer."
     exit 1
 fi
-echo "✅ Python $PYTHON_VERSION_NUMBER meets requirements (3.8 or newer)"
+log_info "Python $PYTHON_VERSION_NUMBER meets requirements (3.8 or newer)"
 
 # Determine which pip command to use
-echo "Detecting available pip command..."
+log_info "Detecting available pip command..."
 if command -v pip3 &> /dev/null; then
     PIP_CMD="pip3"
-    echo "✅ Found pip3 command"
+    log_info "Found pip3 command"
 elif command -v pip &> /dev/null; then
     PIP_CMD="pip"
-    echo "✅ Found pip command"
+    log_info "Found pip command"
 else
     log_error "Neither pip3 nor pip was found. Please install pip."
     exit 1
 fi
 
-echo "Using Python command: $PYTHON_CMD"
-echo "Using pip command: $PIP_CMD"
+log_info "Using Python command: $PYTHON_CMD"
+log_info "Using pip command: $PIP_CMD"
 
 # Check for any running bot processes and terminate them
 if pgrep -f "python.*userbot_tg.py" > /dev/null; then
-    echo "Found existing bot process. Terminating it..."
+    log_info "Found existing bot process. Terminating it..."
     pkill -f "python.*userbot_tg.py"
     sleep 5
 fi
 
 # Remove journal file if it exists (fixes locked database issues)
 if [ -f "session_name.session-journal" ]; then
-    echo "Removing session journal file to prevent database locks..."
+    log_info "Removing session journal file to prevent database locks..."
     rm session_name.session-journal
 fi
 
 # Install required packages
-echo "Installing required packages..."
+log_info "Installing required packages..."
 $PIP_CMD install -r requirements.txt --user || {
     log_error "Failed to install required packages"
 }
@@ -81,15 +91,15 @@ mkdir -p config
 
 # Verify .env configuration
 if [ -f "config/.env" ]; then
-    echo "✅ Found config/.env file"
+    log_info "Found config/.env file"
 else
     if [ -f ".env" ]; then
-        echo "Moving .env file to config directory..."
+        log_info "Moving .env file to config directory..."
         mv .env config/.env
-        echo "✅ Moved .env file to config directory"
+        log_info "Moved .env file to config directory"
     else
         log_error "No .env file found in either root or config directory"
-        echo "⚠️ Missing required configuration. Please create a config/.env file with API keys."
+        log_warning "Missing required configuration. Please create a config/.env file with API keys."
         # Create sample .env file to help the user
         echo "# Sample .env file - please fill with your actual values" > config/.env.sample
         echo "API_ID=your_telegram_api_id" >> config/.env.sample
@@ -99,31 +109,31 @@ else
         echo "DEEPSEEK_API_KEY=your_deepseek_key" >> config/.env.sample
         echo "GITHUB_API_KEY=your_github_key" >> config/.env.sample
         echo "GROK_API_KEY=your_grok_key" >> config/.env.sample
-        echo "Created config/.env.sample for reference"
+        log_info "Created config/.env.sample for reference"
     fi
 fi
 
 # Verify that the bot script exists and is readable
 if [ ! -f "src/userbot/userbot_tg.py" ]; then
     log_error "Bot script not found at src/userbot/userbot_tg.py"
-    echo "Current directory: $(pwd)"
-    echo "Directory listing of src/userbot/:"
-    ls -la src/userbot/ || echo "Cannot access src/userbot directory"
+    log_info "Current directory: $(pwd)"
+    log_info "Directory listing of src/userbot/:"
+    ls -la src/userbot/ || log_error "Cannot access src/userbot directory"
     exit 1
 fi
 
-echo "Verifying bot script is readable..."
+log_info "Verifying bot script is readable..."
 if ! $PYTHON_CMD -m py_compile src/userbot/userbot_tg.py; then
     log_error "Bot script has syntax errors. Please fix before starting."
     exit 1
 fi
-echo "✅ Bot script syntax check passed"
+log_info "Bot script syntax check passed"
 
 # Create a monitoring script with enhanced debugging
 cat > ${PROJECT_ROOT}/scripts/monitor_bot.sh << EOF
 #!/bin/bash
 
-cd "$(dirname "\$0")/.." || exit
+cd "\$(dirname "\$0")/.." || exit
 LOG_DIR="logs"
 mkdir -p "\$LOG_DIR"
 
@@ -194,26 +204,26 @@ chmod +x ${PROJECT_ROOT}/scripts/monitor_bot.sh
 
 # Check if we can access the .env file
 if [ -f "config/.env" ]; then
-    echo "Testing .env file readability..."
+    log_info "Testing .env file readability..."
     if grep -q "API_ID" "config/.env"; then
-        echo "✅ .env file contains API_ID"
+        log_info ".env file contains API_ID"
     else
-        echo "⚠️ Warning: .env file may not contain required API_ID"
+        log_warning ".env file may not contain required API_ID"
     fi
     
     if grep -q "API_HASH" "config/.env"; then
-        echo "✅ .env file contains API_HASH"
+        log_info ".env file contains API_HASH"
     else
-        echo "⚠️ Warning: .env file may not contain required API_HASH"
+        log_warning ".env file may not contain required API_HASH"
     fi
 else
-    echo "⚠️ Warning: No .env file found. Bot will likely fail to start."
+    log_warning "No .env file found. Bot will likely fail to start."
 fi
 
 # Start the bot with verbose output
-echo "Starting Telegram bot with nohup using $PYTHON_CMD..."
-echo "Full command: $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py"
-echo "Running initial test to check for immediate errors..."
+log_info "Starting Telegram bot with nohup using $PYTHON_CMD..."
+log_info "Full command: $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py"
+log_info "Running initial test to check for immediate errors..."
 
 # Test run the bot briefly to catch immediate errors
 $PYTHON_CMD -c "
@@ -235,25 +245,25 @@ nohup $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py > logs/bot_output.log 2>&1 &
 BOT_PID=$!
 
 # Verify the bot started properly
-echo "Waiting 5 seconds to verify bot startup..."
+log_info "Waiting 5 seconds to verify bot startup..."
 sleep 5
 if ps -p $BOT_PID > /dev/null; then
-    echo "✅ Bot started successfully with PID: $BOT_PID"
+    log_info "Bot started successfully with PID: $BOT_PID"
 else
     log_error "Bot failed to start or crashed immediately"
-    echo "Last 20 lines of bot_output.log:"
+    log_info "Last 20 lines of bot_output.log:"
     tail -n 20 logs/bot_output.log
     
     # Try to collect more diagnostic information
-    echo "Checking for Python errors..."
+    log_info "Checking for Python errors..."
     grep -i "error" logs/bot_output.log
     grep -i "exception" logs/bot_output.log
     
-    echo "Starting monitor anyway to attempt recovery..."
+    log_info "Starting monitor anyway to attempt recovery..."
 fi
 
 # Start the monitor script in background
-echo "Starting monitor script..."
+log_info "Starting monitor script..."
 nohup bash scripts/monitor_bot.sh > logs/monitor_output.log 2>&1 &
 MONITOR_PID=$!
 
@@ -298,23 +308,23 @@ chmod +x ${PROJECT_ROOT}/scripts/check_status.sh
 echo ""
 echo "========================================================="
 if ps -p $BOT_PID > /dev/null; then
-    echo "✅ Bot started successfully with PID: $BOT_PID"
+    log_info "Bot started successfully with PID: $BOT_PID"
 else
-    echo "❌ Failed to start bot - check logs for details"
-    echo "The monitor script will attempt to restart it automatically"
+    log_error "Failed to start bot - check logs for details"
+    log_info "The monitor script will attempt to restart it automatically"
 fi
 
 if ps -p $MONITOR_PID > /dev/null; then
-    echo "✅ Monitor started successfully with PID: $MONITOR_PID"
+    log_info "Monitor started successfully with PID: $MONITOR_PID"
 else
-    echo "❌ Failed to start monitor"
+    log_error "Failed to start monitor"
 fi
 
 echo ""
-echo "To check status: bash scripts/check_status.sh"
-echo "To view bot logs: cat logs/bot_output.log"
-echo "To view monitor logs: cat logs/monitor.log"
-echo "To view debug info: cat logs/debug.log"
-echo "To stop the bot: pkill -f \"python.*userbot_tg.py\" "
-echo "To stop everything: pkill -f \"python.*userbot_tg.py\"; pkill -f \"monitor_bot.sh\" "
+log_info "To check status: bash scripts/check_status.sh"
+log_info "To view bot logs: cat logs/bot_output.log"
+log_info "To view monitor logs: cat logs/monitor.log"
+log_info "To view debug info: cat logs/debug.log"
+log_info "To stop the bot: pkill -f \"python.*userbot_tg.py\" "
+log_info "To stop everything: pkill -f \"python.*userbot_tg.py\"; pkill -f \"monitor_bot.sh\" "
 echo "========================================================="
