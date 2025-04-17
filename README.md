@@ -31,7 +31,12 @@ GROK_API_KEY=your_grok_key
 terraform init
 terraform apply
 ```
-4. The VM's IP address will be shown when done
+
+or
+
+```
+bash ./scripts/az_deploy.sh
+```
 
 ## Demo
 Feel free to call me with the command for testing:
@@ -45,6 +50,13 @@ https://t.me/SecondarySchoolDog
 - `/grok_think [question]` - Use Grok to think step by step
 - `/unwire` - Get Today news from Unwire.hk
 - `/unwire 2025-04-15` - Get news from a specific date
+- `/ping` - Get network information
+
+
+## Known Issues
+1. Logging Save Problem
+2. Sometimes LLM response tokens are too large for Telegram's 4096 characters per message limit
+
 
 ## Project Structure
 ```
@@ -57,5 +69,6 @@ TG-bot/
 │   ├── userbot/       # Telegram bot code
 │   └── utils/         # Helper functions
 ├── main.tf            # Terraform config
-└── variables.tf       # Terraform variables
+├── variables.tf       # Terraform variables
+└── requirements.txt   # Python required package
 ```

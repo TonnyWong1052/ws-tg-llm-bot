@@ -220,7 +220,7 @@ async def ping_handler(event):
         current_time = time.strftime("%H:%M:%S %Z", time.localtime())
         
         # Determine service provider based on hostname, system info, or environment variables
-        provider = "Unknown"
+        provider = "Local"
         location = "Unknown"
         hostname_lower = hostname.lower()
         
