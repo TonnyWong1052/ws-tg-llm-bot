@@ -6,6 +6,8 @@ import random
 from telethon import events
 from telethon.errors.rpcerrorlist import FloodWaitError
 from .base import CommandHandler
+from ..commands.utils import MessageHelper
+from services.unwire_fetch import fetch_unwire_news, fetch_unwire_recent
 
 logger = logging.getLogger("telegram_basic_commands")
 
@@ -51,6 +53,12 @@ class BasicCommandHandler(CommandHandler):
         self.client.add_event_handler(
             self.dotenv_handler,
             events.NewMessage(pattern=r'^/\.env$')
+        )
+        
+        # Modified pattern to support /unwire with optional date parameter
+        self.client.add_event_handler(
+            self.unwire_handler,
+            events.NewMessage(pattern=r'^/unwire(?:\s+\d{4}-\d{2}-\d{2})?$')
         )
         
         logger.info("Basic command handlers registered")
@@ -211,4 +219,40 @@ class BasicCommandHandler(CommandHandler):
     
     async def dotenv_handler(self, event):
         """Handle /.env command - calls the same handler as /env"""
-        await self.env_handler(event) 
+        await self.env_handler(event)
+    
+    async def unwire_handler(self, event):
+        """
+        Handle /unwire command - Fetch news from Unwire.hk
+        
+        Usage:
+        /unwire - Get today's news
+        /unwire 2025-04-15 - Get news from specific date
+        """
+        try:
+            # Get the command text and split it
+            command_text = event.message.text.split()
+            
+            # If no date specified, get today's news
+            if len(command_text) == 1:
+                news_content = fetch_unwire_news()
+            else:
+                # Try to get news for specified date
+                date_str = command_text[1]
+                # Validate date format (YYYY-MM-DD)
+                try:
+                    from datetime import datetime
+                    datetime.strptime(date_str, '%Y-%m-%d')
+                    news_content = fetch_unwire_news(date=date_str)
+                except ValueError:
+                    error_msg = "Invalid date format. Please use YYYY-MM-DD format (e.g., 2025-04-19)."
+                    await event.respond(error_msg)
+                    return
+            
+            # Send the news content
+            await event.respond(news_content)
+            
+        except Exception as e:
+            logger.error(f"Error in unwire_handler: {e}")
+            error_msg = "Sorry, I couldn't fetch the news. Please try again later."
+            await event.respond(error_msg) 

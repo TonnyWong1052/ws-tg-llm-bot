@@ -8,14 +8,14 @@ logger = logging.getLogger("grok_provider")
 
 class GrokProvider(LLMProvider):
     """
-    Grok API 的提供商實現
+    Implementation of Grok API provider
     """
     def __init__(self, api_key=None):
         """
-        初始化 Grok 提供商
+        Initialize Grok provider
         
         Args:
-            api_key (str, optional): Grok API 密鑰
+            api_key (str, optional): Grok API key
         """
         super().__init__(api_key)
         if not self.api_key:
@@ -23,16 +23,16 @@ class GrokProvider(LLMProvider):
     
     def call(self, prompt, **kwargs):
         """
-        調用 Grok API 生成響應
+        Call Grok API to generate response
         
         Args:
-            prompt (str): 用戶提示
-            **kwargs: 附加參數，包括:
-                system_prompt (str): 設置上下文的系統提示
-                model_name (str): 要使用的模型 (默認: grok-3)
+            prompt (str): User prompt
+            **kwargs: Additional parameters including:
+                system_prompt (str): System prompt to set context
+                model_name (str): Model to use (default: grok-3)
                 
         Returns:
-            str: 生成的文本響應
+            str: Generated text response
         """
         system_prompt = kwargs.get('system_prompt', '')
         model_name = kwargs.get('model_name', 'grok-3')
@@ -40,7 +40,7 @@ class GrokProvider(LLMProvider):
         if not self.api_key:
             return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
         
-        # 改進系統提示以使用 Telegram 友好的格式
+        # Enhance system prompt for Telegram-friendly formatting
         enhanced_system_prompt = system_prompt
         if system_prompt and "Format your response" not in system_prompt:
             enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
@@ -48,10 +48,10 @@ class GrokProvider(LLMProvider):
             enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         
         try:
-            # 設置與 API 端點的 HTTP 連接
+            # Set up HTTP connection to API endpoint
             conn = http.client.HTTPSConnection("chatapi.littlewheat.com")
             
-            # 設置消息
+            # Set up messages
             messages = []
             if enhanced_system_prompt:
                 messages.append({
@@ -59,13 +59,13 @@ class GrokProvider(LLMProvider):
                     "content": enhanced_system_prompt
                 })
             
-            # 添加用戶消息
+            # Add user message
             messages.append({
                 "role": "user", 
                 "content": prompt
             })
             
-            # 準備請求有效載荷
+            # Prepare request payload
             payload = json.dumps({
                 "model": model_name,
                 "messages": messages,
@@ -74,20 +74,20 @@ class GrokProvider(LLMProvider):
                 "max_tokens": 1000
             })
             
-            # 設置帶有授權的標頭
+            # Set headers with authorization
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
                 'Content-Type': 'application/json'
             }
             
-            # 發送請求
+            # Send request
             conn.request("POST", "/v1/chat/completions", payload, headers)
             
-            # 獲取響應
+            # Get response
             res = conn.getresponse()
             data = res.read()
             
-            # 解析響應
+            # Parse response
             if res.status != 200:
                 return f"Error calling Grok API: HTTP status {res.status} - {data.decode('utf-8')}"
                 
@@ -100,18 +100,18 @@ class GrokProvider(LLMProvider):
     
     def call_stream(self, prompt, **kwargs):
         """
-        使用流式支持調用 Grok API 生成響應
+        Call Grok API with streaming support to generate response
         
         Args:
-            prompt (str): 用戶提示
-            **kwargs: 附加參數，包括:
-                system_prompt (str): 設置上下文的系統提示
-                model_name (str): 要使用的模型 (默認: grok-3-reasoner)
+            prompt (str): User prompt
+            **kwargs: Additional parameters including:
+                system_prompt (str): System prompt to set context
+                model_name (str): Model to use (default: grok-3-reasoner)
                 
         Returns:
-            Generator: 生成部分響應的生成器
+            Generator: Generator yielding partial responses
         """
-        # 獲取關鍵字參數
+        # Get keyword arguments
         system_prompt = kwargs.get('system_prompt', '')
         model_name = kwargs.get('model_name', 'grok-3-reasoner')
         
@@ -119,14 +119,14 @@ class GrokProvider(LLMProvider):
             yield "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
             return
         
-        # 改進系統提示
+        # Enhance system prompt
         enhanced_system_prompt = system_prompt
         if system_prompt and "Format your response" not in system_prompt:
             enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         elif not system_prompt:
             enhanced_system_prompt = "You are a helpful AI assistant. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
         
-        # 設置消息
+        # Set up messages
         messages = []
         if enhanced_system_prompt:
             messages.append({
@@ -134,26 +134,26 @@ class GrokProvider(LLMProvider):
                 "content": enhanced_system_prompt
             })
         
-        # 添加用戶消息
+        # Add user message
         messages.append({
             "role": "user", 
             "content": prompt
         })
         
-        # 最大重試次數
+        # Maximum retry count
         max_retries = 3
         retry_count = 0
-        retry_delay = 2  # 秒
+        retry_delay = 2  # seconds
         
         while retry_count < max_retries:
             try:
-                # 打印請求詳細信息以進行調試
+                # Print request details for debugging
                 logger.info(f"Making request to chatapi.littlewheat.com with model: {model_name} (attempt {retry_count + 1}/{max_retries})")
                 
-                # 設置到特定 API 端點的連接
+                # Set up connection to specific API endpoint
                 conn = http.client.HTTPSConnection("chatapi.littlewheat.com", timeout=30)
                 
-                # 準備流式處理的有效載荷
+                # Prepare streaming payload
                 payload = json.dumps({
                     "model": model_name,
                     "messages": messages,
@@ -162,46 +162,46 @@ class GrokProvider(LLMProvider):
                     "max_tokens": 1000
                 })
                 
-                # 設置帶有 API 密鑰的標頭
+                # Set headers with API key
                 headers = {
                     'Authorization': f'Bearer {self.api_key}',
                     'Content-Type': 'application/json'
                 }
                 
-                # 進行流式 API 請求
+                # Make streaming API request
                 conn.request("POST", "/v1/chat/completions", payload, headers)
                 response = conn.getresponse()
                 
-                # 檢查錯誤
+                # Check for errors
                 if response.status != 200:
                     error_data = response.read().decode('utf-8', errors='replace')
                     error_msg = f"Grok API returned error {response.status}: {error_data}"
                     
-                    # 如果是伺服器錯誤 (5xx)，重試
+                    # If server error (5xx), retry
                     if 500 <= response.status < 600:
                         retry_count += 1
                         if retry_count < max_retries:
                             logger.warning(f"Server error {response.status}, retrying in {retry_delay} seconds...")
                             time.sleep(retry_delay)
-                            retry_delay *= 2  # 指數退避
+                            retry_delay *= 2  # Exponential backoff
                             continue
                     
-                    # 如果我們已經用盡重試或者是客戶端錯誤，則產生錯誤消息
+                    # If we've exhausted retries or it's a client error, yield error message
                     yield error_msg
                     return
                 
-                # 處理流式響應
+                # Process streaming response
                 collected_content = ""
                 buffer = ""
                 incomplete_json = ""
                 
-                # 一次讀取更大的塊而不是逐字節讀取，以避免 UTF-8 解碼問題
+                # Read larger chunks at once instead of byte by byte to avoid UTF-8 decoding issues
                 while True:
-                    chunk = response.read(4096)  # 一次讀取 4KB
+                    chunk = response.read(4096)  # Read 4KB at a time
                     if not chunk:
                         break
                     
-                    # 使用錯誤處理進行解碼
+                    # Decode with error handling
                     try:
                         text = chunk.decode('utf-8', errors='replace')
                         buffer += text
@@ -209,7 +209,7 @@ class GrokProvider(LLMProvider):
                         logger.warning(f"Warning: Error decoding chunk: {e}")
                         continue
                     
-                    # 處理完整行
+                    # Process complete lines
                     lines = buffer.split('\n')
                     buffer = lines.pop()  # Keep the last possibly incomplete line in the buffer
                     
@@ -218,37 +218,37 @@ class GrokProvider(LLMProvider):
                             continue
                         
                         if line.startswith('data: '):
-                            line = line[6:].strip()  # 跳過 "data: " 前綴
+                            line = line[6:].strip()  # Skip "data: " prefix
                             
                             if line == '[DONE]':
-                                # 完整響應的最終生成
+                                # Final yield of complete response
                                 if collected_content:
                                     yield collected_content
                                 return
                             
-                            # 改進的 JSON 處理邏輯
+                            # Improved JSON processing logic
                             try:
-                                # 嘗試直接解析
+                                # Try direct parsing
                                 json_obj = None
                                 try:
                                     json_obj = json.loads(line)
                                 except json.JSONDecodeError:
-                                    # 如果有來自上一個塊的不完整 JSON，嘗試組合
+                                    # If there's incomplete JSON from previous chunk, try combining
                                     if incomplete_json:
                                         try:
                                             combined = incomplete_json + line
                                             json_obj = json.loads(combined)
-                                            incomplete_json = ""  # 成功解析後重置
+                                            incomplete_json = ""  # Reset after successful parse
                                         except json.JSONDecodeError:
-                                            # 仍然不完整，存儲以待下次迭代
+                                            # Still incomplete, store for next iteration
                                             incomplete_json += line
                                             continue
                                     else:
-                                        # 這可能是不完整 JSON 的開始
+                                        # This might be the start of incomplete JSON
                                         incomplete_json = line
                                         continue
                                 
-                                # 如果我們有成功解析的 JSON 對象
+                                # If we have successfully parsed the JSON object
                                 if json_obj and "choices" in json_obj and json_obj["choices"]:
                                     delta = json_obj["choices"][0].get("delta", {})
                                     if "content" in delta and delta["content"] is not None:
@@ -257,17 +257,17 @@ class GrokProvider(LLMProvider):
                                         yield collected_content
                             except Exception as je:
                                 logger.warning(f"Warning: JSON processing error: {je}. Input: {line[:100]}...")
-                                # 不要將此存儲為 incomplete_json，因為它可能無效
+                                # Do not store this as incomplete_json, as it might be invalid
                                 incomplete_json = ""  # Reset invalid JSON
                                 continue
                 
-                # 處理任何剩餘的緩衝區內容
+                # Process any remaining buffer content
                 if buffer.strip():
                     if buffer.startswith('data: '):
                         buffer = buffer[6:].strip()
                         
                     if buffer != '[DONE]':
-                        # 嘗試處理任何剩餘的 JSON
+                        # Try to process any remaining JSON
                         try:
                             combined = incomplete_json + buffer if incomplete_json else buffer
                             json_obj = None
@@ -297,7 +297,7 @@ class GrokProvider(LLMProvider):
                         except Exception as e:
                             logger.warning(f"Warning: Error processing final buffer: {str(e)}")
                             
-                # 確保我們生成最終內容
+                # Ensure we generate final content
                 if collected_content:
                     yield collected_content
                 return
@@ -307,7 +307,7 @@ class GrokProvider(LLMProvider):
                 if retry_count < max_retries:
                     logger.warning(f"HTTP error: {e}, retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # 指數退避
+                    retry_delay *= 2  # Exponential backoff
                     continue
                 else:
                     logger.error(f"HTTP error after {max_retries} attempts: {e}")

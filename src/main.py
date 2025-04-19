@@ -17,7 +17,7 @@ if __name__ == "__main__":
     from core.config import config
     from api.llm_client import LLMClient
     from api.llm_providers import (
-        OpenAIProvider, DeepseekProvider,
+        DeepseekProvider,
         GitHubProvider, GrokProvider
     )
     from platforms.telegram import TelegramBot

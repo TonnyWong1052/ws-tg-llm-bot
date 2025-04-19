@@ -20,7 +20,6 @@ src/
 │   ├── llm_client.py       # Unified LLM client
 │   └── llm_providers/      # Specific implementations for LLM providers
 │       ├── __init__.py
-│       ├── openai.py
 │       ├── deepseek.py
 │       ├── github.py
 │       └── grok.py
