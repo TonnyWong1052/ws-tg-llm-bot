@@ -33,7 +33,7 @@ class MessageHelper:
         if isinstance(text, str) and text.startswith("logs/") and os.path.exists(text):
             try:
                 # Directly send file path
-                await message_obj.edit(file=text)
+                await message_obj.edit(file=text, reply_to=message_obj.reply_to_msg_id)
                 return True
             except FloodWaitError as e:
                 wait_seconds = e.seconds
@@ -44,7 +44,7 @@ class MessageHelper:
                     try:
                         logger.info(f"Waiting {wait_seconds} seconds before retry...")
                         await asyncio.sleep(wait_seconds + 1)  # Wait an extra second to ensure safety
-                        await message_obj.edit(file=text)
+                        await message_obj.edit(file=text, reply_to=message_obj.reply_to_msg_id)
                         return True
                     except Exception as retry_e:
                         logger.error(f"Retry failed after waiting: {retry_e}")
@@ -58,7 +58,7 @@ class MessageHelper:
                     
                     # Wait again to avoid triggering rate limits
                     await asyncio.sleep(2)
-                    await message_obj.edit(file=file_obj)
+                    await message_obj.edit(file=file_obj, reply_to=message_obj.reply_to_msg_id)
                     return True
                 except FloodWaitError as e2:
                     logger.error(f"Second FloodWaitError: {e2.seconds}s wait required. Giving up.")
@@ -74,19 +74,19 @@ class MessageHelper:
                 file_obj = io.BytesIO(text.encode('utf-8'))
                 file_obj.name = "output.txt"
                 
-                # Edit message to send file
-                await message_obj.edit(file=file_obj)
+                # Edit message to send file WITHOUT caption
+                await message_obj.edit(file=file_obj, caption=None, reply_to=message_obj.reply_to_msg_id)
                 return True
             except FloodWaitError as e:
                 wait_seconds = e.seconds
                 logger.warning(f"FloodWaitError in safe_send_message (memory file): {wait_seconds}s wait required")
                 
                 # If wait time isn't too long, wait and retry
-                if wait_seconds <= 180:  # Maximum wait of 3 minutes
+                if wait_seconds <= 300:  # Maximum wait of 5 minutes
                     try:
                         logger.info(f"Waiting {wait_seconds} seconds before retry...")
                         await asyncio.sleep(wait_seconds + 1)
-                        await message_obj.edit(file=file_obj)
+                        await message_obj.edit(file=file_obj, caption=None, reply_to=message_obj.reply_to_msg_id)
                         return True
                     except Exception as retry_e:
                         logger.error(f"Failed to edit message after waiting: {retry_e}")
@@ -102,7 +102,7 @@ class MessageHelper:
                     
                     # Wait again to avoid triggering rate limits
                     await asyncio.sleep(2)
-                    await message_obj.edit(file=file_path)
+                    await message_obj.edit(file=file_path, caption=None, reply_to=message_obj.reply_to_msg_id)
                     return True
                 except Exception as file_e:
                     logger.error(f"Error sending disk file: {file_e}")
@@ -112,7 +112,7 @@ class MessageHelper:
                     for retry in range(max_retry_times):
                         try:
                             truncated_msg = text[:TELEGRAM_MAX_LENGTH - 100] + "...\n\n[Message too long, truncated]"
-                            await event.respond(truncated_msg)
+                            await event.reply(truncated_msg)
                             return True
                         except FloodWaitError as respond_e:
                             # If this is the last retry, give up
@@ -136,7 +136,7 @@ class MessageHelper:
                     for retry in range(max_retry_times):
                         try:
                             truncated_msg = text[:TELEGRAM_MAX_LENGTH - 100] + "...\n\n[Message too long, truncated]"
-                            await event.respond(truncated_msg)
+                            await event.reply(truncated_msg)
                             return True
                         except FloodWaitError as respond_e:
                             # If this is the last retry, give up
@@ -156,7 +156,7 @@ class MessageHelper:
             retry_count = 0
             while retry_count <= max_retry_times:
                 try:
-                    await message_obj.edit(text, parse_mode=parse_mode)
+                    await message_obj.edit(text, parse_mode=parse_mode, reply_to=message_obj.reply_to_msg_id)
                     return True
                 except FloodWaitError as e:
                     wait_seconds = e.seconds
@@ -188,7 +188,7 @@ class MessageHelper:
             if event is not None:
                 for retry in range(max_retry_times):
                     try:
-                        await event.respond(text, parse_mode=parse_mode)
+                        await event.reply(text, parse_mode=parse_mode)
                         return True
                     except FloodWaitError as respond_e:
                         # If this is the last retry, give up
@@ -200,12 +200,9 @@ class MessageHelper:
                         wait_time = respond_e.seconds
                         logger.info(f"FloodWaitError in respond: {wait_time}s required. Waiting...")
                         await asyncio.sleep(wait_time + 1)
-                    except Exception as reply_e:
-                        logger.error(f"Failed to send new message: {reply_e}")
-                        if retry == max_retry_times - 1:
-                            return False
-                        # Continue to next retry
-                        await asyncio.sleep(2)
+                    except Exception as respond_error:
+                        logger.error(f"Error sending reply message: {respond_error}")
+                        return False
             
             # If all attempts fail, return failure
             return False
@@ -213,7 +210,7 @@ class MessageHelper:
     @staticmethod
     async def process_stream_with_updates(message_obj, stream_generator, min_update_interval=1.5):
         """
-        Process streaming responses and update message
+        Process complete response and update message
         
         Args:
             message_obj: Telegram message object to update
@@ -221,92 +218,57 @@ class MessageHelper:
             min_update_interval: Minimum interval between updates (seconds)
         """
         full_response = ""
-        last_update_time = time.time()
-        error_message = None
         max_retries = 3
+        max_message_length = 4096  # Telegram's maximum message length
         
         try:
+            # Collect all chunks into full response
             for chunk in stream_generator:
                 if chunk is None:
                     continue
                     
                 # Check if chunk contains error message
                 if isinstance(chunk, str) and (chunk.startswith("Error:") or chunk.startswith("Sorry, an error occurred")):
-                    error_message = chunk
+                    full_response = chunk
                     break
                     
                 # Add chunk to full response
                 if isinstance(chunk, str):
                     full_response += chunk
-                
-                # Only update if enough time has passed since last update
-                current_time = time.time()
-                if current_time - last_update_time >= min_update_interval:
-                    for retry in range(max_retries):
-                        try:
-                            # Check if response is too long for a single message
-                            if len(full_response) > 4000:
-                                # Create temporary file in memory
-                                file_obj = io.BytesIO(full_response.encode('utf-8'))
-                                file_obj.name = "response.txt"
-                                
-                                # Edit message to send file
-                                await message_obj.edit(file=file_obj)
-                            else:
-                                await message_obj.edit(full_response)
-                                
-                            last_update_time = current_time
-                            break
-                        except FloodWaitError as e:
-                            logger.warning(f"FloodWaitError in stream update: {e.seconds}s wait required (retry {retry+1}/{max_retries})")
-                            if retry < max_retries - 1:
-                                await asyncio.sleep(e.seconds + 1)
-                            else:
-                                logger.error("Max retries reached for stream update")
-                        except Exception as e:
-                            if "not modified" not in str(e).lower():
-                                logger.error(f"Error updating message in stream: {e}")
-                                if retry < max_retries - 1:
-                                    await asyncio.sleep(1)
-        except Exception as e:
-            logger.error(f"Error in process_stream_with_updates: {e}")
-            error_message = f"Error processing stream: {str(e)}"
-        
-        # Handle final response
-        if error_message:
-            for retry in range(max_retries):
-                try:
-                    await message_obj.edit(error_message)
-                    break
-                except Exception as e:
-                    logger.error(f"Error sending error message (retry {retry+1}/{max_retries}): {e}")
-                    if retry < max_retries - 1:
-                        await asyncio.sleep(1)
-        elif full_response:
+            
+            # Handle the complete response
             for retry in range(max_retries):
                 try:
                     # Check if response is too long for a single message
-                    if len(full_response) > 4000:
+                    if len(full_response) > max_message_length:
                         # Create temporary file in memory
                         file_obj = io.BytesIO(full_response.encode('utf-8'))
-                        file_obj.name = "response.txt"
+                        file_obj.name = "output.txt"
                         
-                        # Edit message to send file
-                        await message_obj.edit(file=file_obj)
+                        # Send file as new message
+                        await message_obj.client.send_file(
+                            message_obj.chat_id,
+                            file_obj
+                        )
+                        
+                        # Delete the initial "Processing" message
+                        await message_obj.delete()
                     else:
                         await message_obj.edit(full_response)
                     break
                 except Exception as e:
-                    logger.error(f"Error sending final response (retry {retry+1}/{max_retries}): {e}")
+                    logger.error(f"Error sending response (retry {retry+1}/{max_retries}): {e}")
                     if retry < max_retries - 1:
                         await asyncio.sleep(1)
-        else:
+                        
+        except Exception as e:
+            logger.error(f"Error in process_stream_with_updates: {e}")
             for retry in range(max_retries):
                 try:
-                    await message_obj.edit("No response received from API.")
+                    await message_obj.edit(f"Error occurred: {str(e)}")
                     break
-                except Exception as e:
-                    logger.error(f"Error sending no response message (retry {retry+1}/{max_retries}): {e}")
+                except Exception as send_error:
+                    logger.error(f"Error sending error message (retry {retry+1}/{max_retries}): {send_error}")
                     if retry < max_retries - 1:
                         await asyncio.sleep(1)
 

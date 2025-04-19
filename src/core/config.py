@@ -33,7 +33,7 @@ class Config:
         self._load_credentials()
         
         # Message length limits
-        self.telegram_max_length = 4000
+        self.telegram_max_length = 2500
         
         # Retry settings
         self.max_retries = 3

@@ -22,7 +22,7 @@ if __name__ == "__main__":
     )
     from platforms.telegram import TelegramBot
     from platforms.telegram.handlers import TelegramMessageHandler
-    from userbot.start_userbot import start_userbot  
+    # from userbot.start_userbot import start_userbot  
     
     # Define available platforms
     PLATFORMS = {

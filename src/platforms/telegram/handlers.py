@@ -289,10 +289,6 @@ class TelegramMessageHandler(MessageHandler):
             # Provide additional information about the error
             try:
                 await asyncio.sleep(1)  # Small delay before sending additional info
-                await event.reply("If you continue to experience issues with the Grok API, please try:\n\n"
-                                "1. Using a different model (e.g., /deepseek or /gpt)\n"
-                                "2. Trying again in a few minutes\n"
-                                "3. Checking if the Grok API service is available")
             except Exception as e:
                 logger.error(f"Error sending additional error information: {str(e)}")
     

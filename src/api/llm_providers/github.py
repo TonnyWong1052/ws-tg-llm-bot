@@ -6,14 +6,14 @@ logger = logging.getLogger("github_provider")
 
 class GitHubProvider(LLMProvider):
     """
-    GitHub (via Azure) API 的提供商實現
+    Implementation of GitHub (via Azure) API provider
     """
     def __init__(self, api_key=None):
         """
-        初始化 GitHub 提供商
+        Initialize GitHub provider
         
         Args:
-            api_key (str, optional): GitHub API 密鑰
+            api_key (str, optional): GitHub API key
         """
         super().__init__(api_key)
         self.endpoint = "https://models.inference.ai.azure.com"
@@ -22,16 +22,16 @@ class GitHubProvider(LLMProvider):
     
     def call(self, prompt, **kwargs):
         """
-        調用 GitHub API 生成響應
+        Call GitHub API to generate a response
         
         Args:
-            prompt (str): 用戶提示
-            **kwargs: 附加參數，包括:
-                system_prompt (str): 設置上下文的系統提示
-                model_name (str): 要使用的模型 (默認: gpt-4o-mini)
+            prompt (str): User prompt
+            **kwargs: Additional parameters, including:
+                system_prompt (str): System prompt to set the context
+                model_name (str): Model to use (default: gpt-4o-mini)
                 
         Returns:
-            str: 生成的文本響應
+            str: Generated text response
         """
         system_prompt = kwargs.get('system_prompt', 'You are a helpful AI assistant.')
         model_name = kwargs.get('model_name', 'gpt-4o-mini')
@@ -68,16 +68,16 @@ class GitHubProvider(LLMProvider):
     
     def call_stream(self, prompt, **kwargs):
         """
-        使用流式支持調用 GitHub API 生成響應
+        Call GitHub API with streaming support to generate a response
         
         Args:
-            prompt (str): 用戶提示
-            **kwargs: 附加參數，包括:
-                system_prompt (str): 設置上下文的系統提示
-                model_name (str): 要使用的模型 (默認: gpt-4o-mini)
+            prompt (str): User prompt
+            **kwargs: Additional parameters, including:
+                system_prompt (str): System prompt to set the context
+                model_name (str): Model to use (default: gpt-4o-mini)
                 
         Returns:
-            Generator: 生成部分響應的生成器
+            Generator: Generator of partial responses
         """
         system_prompt = kwargs.get('system_prompt', 'You are a helpful AI assistant.')
         model_name = kwargs.get('model_name', 'gpt-4o-mini')
@@ -119,4 +119,4 @@ class GitHubProvider(LLMProvider):
                     
         except Exception as e:
             logger.error(f"Error streaming from GitHub API: {e}")
-            yield f"Error streaming from GitHub API: {str(e)}" 
+            yield f"Error streaming from GitHub API: {str(e)}"

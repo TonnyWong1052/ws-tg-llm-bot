@@ -4,7 +4,7 @@ from telethon import events
 from telethon.errors.rpcerrorlist import FloodWaitError
 from .base import CommandHandler
 from .utils import MessageHelper
-from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE
+from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE, THINKING_ANIMATIONS
 
 logger = logging.getLogger("telegram_llm_commands")
 
@@ -69,8 +69,16 @@ class LLMCommandHandler(CommandHandler):
         response_message = None
         
         try:
-            # Send initial response message
-            response_message = await event.respond("Processing, please wait...")
+            # Send initial response message with animation
+            try:
+                response_message = await event.respond(INITIAL_MESSAGE_ART)
+            except FloodWaitError as e:
+                logger.warning(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
+                await asyncio.sleep(2)
+                response_message = await event.respond("Thinking...")
+            except Exception as e:
+                logger.error(f"Error sending initial message: {e}. Using simple message instead.")
+                response_message = await event.respond("Thinking...")
             
             # Ensure LLM client is initialized
             if not self.llm_client:
@@ -90,13 +98,14 @@ class LLMCommandHandler(CommandHandler):
             logger.info(f"Calling {llm_type} with prompt: {prompt[:50]}...")
             
             try:
-                # Get appropriate stream generator based on LLM type
+                # Get stream generator
                 stream_generator = self.llm_client.call_llm_stream(llm_type, prompt, model=model, system_prompt=system_prompt)
                 
                 # Process stream and update message
                 await MessageHelper.process_stream_with_updates(
-                    message_obj=response_message, 
-                    stream_generator=stream_generator
+                    message_obj=response_message,
+                    stream_generator=stream_generator,
+                    min_update_interval=0
                 )
                 
             except AttributeError as e:
@@ -225,170 +234,70 @@ class LLMCommandHandler(CommandHandler):
             
     async def handle_grok3_stream_request(self, event, prompt):
         """
-        Handle Grok3 stream request
+        Handle streaming request to Grok-3 API
         
         Args:
             event: Telegram event object
-            prompt: Prompt text
+            prompt: User prompt
         """
-        try:
-            thinking_msg = await event.reply(INITIAL_MESSAGE_ART)
-        except FloodWaitError as e:
-            logger.warning(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-            await asyncio.sleep(2)
-            thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-        except Exception as e:
-            logger.error(f"Error sending initial message: {e}. Using simple message instead.")
-            thinking_msg = await event.reply(SIMPLE_INITIAL_MESSAGE)
-        
-        error_occurred = False
+        response_message = None
         max_retries = 3
-        retry_delay = 2
         
         try:
-            # Check if environment is test environment
-            if self.llm_client.environment.lower() == 'test':
-                test_task = asyncio.create_task(asyncio.to_thread(self.llm_client.call_test, prompt))
-                response = await animated_thinking(thinking_msg, test_task)
-                await MessageHelper.safe_send_message(thinking_msg, response)
-                return
+            # Send initial response message with animation
+            try:
+                response_message = await event.respond(INITIAL_MESSAGE_ART)
+            except FloodWaitError as e:
+                logger.warning(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
+                await asyncio.sleep(2)
+                response_message = await event.respond("Thinking...")
+            except Exception as e:
+                logger.error(f"Error sending initial message: {e}. Using simple message instead.")
+                response_message = await event.respond("Thinking...")
             
-            # Check if Grok API key is available
-            grok_provider_available = False
-            if hasattr(self.llm_client, 'providers') and 'grok' in self.llm_client.providers:
-                grok_provider = self.llm_client.providers['grok']
-                if grok_provider and hasattr(grok_provider, 'api_key') and grok_provider.api_key:
-                    grok_provider_available = True
-                
-            if not grok_provider_available:
-                error_msg = "Grok API key not found. Please set GROK_API_KEY in your environment variables or credentials file."
-                await MessageHelper.safe_send_message(thinking_msg, error_msg, event=event)
-                return
-                
-            model = "grok-3-reasoner"
-            system_prompt = "You are a helpful AI assistant with reasoning capabilities. Think through problems step by step and explore different aspects of the question. Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
+            # Create task for LLM call
+            llm_task = asyncio.create_task(
+                self.llm_client.call_llm_stream('grok', prompt, model='grok-3')
+            )
             
-            # Start animation
-            from .utils import show_thinking_animation
-            thinking_frames = [
-                "Thinking.",
-                "Thinking..",
-                "Thinking...",
-                "Thinking....",
-            ]
-            animation_task = asyncio.create_task(show_thinking_animation(thinking_msg, thinking_frames))
+            # Start animation and wait for LLM response
+            response = await animated_thinking(response_message, llm_task)
             
-            # Try using Grok API
-            grok_success = False
-            for attempt in range(max_retries):
-                try:
-                    # Show attempt count
-                    if attempt > 0:
-                        try:
-                            await thinking_msg.edit(f"Grok API request in progress... (attempt {attempt + 1}/{max_retries})")
-                        except:
-                            pass  # Ignore edit errors
-                    
-                    # Set timeout for API call
-                    stream_generator = self.llm_client.call_grok3_stream(system_prompt, prompt, model_name=model)
-                    
-                    # Cancel animation when we get the first response
-                    animation_task.cancel()
-                    
-                    # Process stream with timeout
-                    async with asyncio.timeout(180):  # Increased to 180 seconds timeout
-                        await MessageHelper.process_stream_with_updates(thinking_msg, stream_generator)
-                    grok_success = True
-                    return  # If successful, return directly
-                    
-                except asyncio.TimeoutError:
-                    error_str = "Request timed out, possibly due to high server load"
-                    if attempt < max_retries - 1:
-                        retry_wait = retry_delay * (2 ** attempt)  # Exponential backoff
-                        try:
-                            await thinking_msg.edit(f"API request timed out, retrying in {retry_wait} seconds... (attempt {attempt + 1}/{max_retries})")
-                        except Exception as edit_error:
-                            logger.error(f"Error editing message during retry: {edit_error}")
-                        await asyncio.sleep(retry_wait)
-                        continue
-                    else:
-                        try:
-                            await thinking_msg.edit("Grok API request timed out multiple times, switching to DeepSeek model...")
-                        except:
-                            pass
-                        break
-                        
-                except Exception as e:
-                    error_str = str(e)
-                    if "timed out" in error_str.lower() or "timeout" in error_str.lower() or "502" in error_str:
-                        if attempt < max_retries - 1:
-                            retry_wait = retry_delay * (2 ** attempt)  # Exponential backoff
-                            try:
-                                await thinking_msg.edit(f"Connection error, retrying in {retry_wait} seconds... (attempt {attempt + 1}/{max_retries})")
-                            except Exception as edit_error:
-                                logger.error(f"Error editing message during retry: {edit_error}")
-                            await asyncio.sleep(retry_wait)
-                            continue
-                        else:
-                            # All retries have failed
-                            try:
-                                await thinking_msg.edit("Grok API currently unavailable, switching to DeepSeek model...")
-                            except Exception as edit_error:
-                                logger.error(f"Error editing message after all retries: {edit_error}")
-                            break
-                    elif "Content of the message was not modified" in error_str:
-                        # If it's a message not modified error, try using the backup model
-                        logger.info("Message not modified error detected. Switching to DeepSeek model...")
-                        try:
-                            await thinking_msg.edit("Message update error. Switching to DeepSeek model...")
-                        except Exception as edit_error:
-                            logger.error(f"Error editing message for model switch: {edit_error}")
-                        break
-                    else:
-                        error_msg = f"Sorry, an error occurred: {str(e)}"
-                        await MessageHelper.safe_send_message(thinking_msg, error_msg, event=event)
-                        error_occurred = True
-                        break
+            # Process the response
+            if isinstance(response, str):
+                await MessageHelper.process_stream_with_updates(
+                    message_obj=response_message,
+                    stream_generator=[response],
+                    min_update_interval=0
+                )
+            else:
+                await MessageHelper.process_stream_with_updates(
+                    message_obj=response_message,
+                    stream_generator=response,
+                    min_update_interval=0
+                )
             
-            # If Grok API failed, try using backup model
-            if not grok_success:
-                try:
-                    # Use DeepSeek as backup model
-                    model = "deepseek-coder-33b-instruct"
-                    stream_generator = self.llm_client.call_deepseek_stream(prompt, model=model, mode="reasoner")
-                    
-                    # Show message that we're using the backup model
-                    try:
-                        await thinking_msg.edit("Using DeepSeek model to process request...")
-                    except:
-                        pass
-                    
-                    # Process streaming response
-                    await MessageHelper.process_stream_with_updates(thinking_msg, stream_generator)
-                    return
-                    
-                except Exception as e:
-                    error_msg = f"Both Grok API and DeepSeek model failed. Error: {str(e)}"
-                    await MessageHelper.safe_send_message(thinking_msg, error_msg, event=event)
-                    error_occurred = True
-                
         except FloodWaitError as e:
-            wait_seconds = e.seconds
-            logger.warning(f"FloodWaitError when updating response: {wait_seconds} seconds wait required")
+            await self.handle_flood_wait_error(event, e, response_message)
             
-            error_msg = f"Response was generated but Telegram rate limits were hit. Please try again in {wait_seconds} seconds."
-            await MessageHelper.safe_send_message(thinking_msg, error_msg, event=event)
-            error_occurred = True
-                
-        except Exception as e:
-            # error_msg = f"Sorry, an error occurred: {str(e)}"
-            # await MessageHelper.safe_send_message(thinking_msg, error_msg, event=event)
-            error_occurred = True
-                
-            logger.error(f"Error in grok3_stream_handler: {str(e)}")
+        except Exception as error:
+            logger.error(f"Error in handle_grok3_stream_request: {error}")
+            import traceback
+            logger.error(traceback.format_exc())
             
-        if error_occurred:
-                logger.error(f"Error sending additional error information: {str(e)}")
+            # Try to send error message
+            try:
+                if response_message:
+                    await response_message.edit(f"Error occurred: {str(error)}")
+                else:
+                    await event.respond(f"Error occurred: {str(error)}")
+            except Exception as send_error:
+                logger.error(f"Error sending error message: {send_error}")
+                try:
+                    # Try to send additional error information
+                    await event.respond(f"Additional error information: {str(send_error)}")
+                except Exception as additional_error:
+                    logger.error(f"Error sending additional error information: {str(additional_error)}")
     
     async def handle_flood_wait_error(self, event, e, response_message=None):
         """

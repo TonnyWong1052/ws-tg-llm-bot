@@ -193,6 +193,7 @@ class GrokProvider(LLMProvider):
                 # 處理流式響應
                 collected_content = ""
                 buffer = ""
+                incomplete_json = ""
                 
                 # 一次讀取更大的塊而不是逐字節讀取，以避免 UTF-8 解碼問題
                 while True:
@@ -209,11 +210,10 @@ class GrokProvider(LLMProvider):
                         continue
                     
                     # 處理完整行
-                    while '\n' in buffer:
-                        pos = buffer.find('\n')
-                        line = buffer[:pos]
-                        buffer = buffer[pos + 1:]
-                        
+                    lines = buffer.split('\n')
+                    buffer = lines.pop()  # Keep the last possibly incomplete line in the buffer
+                    
+                    for line in lines:
                         if not line.strip():
                             continue
                         
@@ -226,41 +226,81 @@ class GrokProvider(LLMProvider):
                                     yield collected_content
                                 return
                             
+                            # 改進的 JSON 處理邏輯
                             try:
-                                json_response = json.loads(line)
-                                if "choices" in json_response and json_response["choices"]:
-                                    delta = json_response["choices"][0].get("delta", {})
-                                    if "content" in delta and delta["content"]:
+                                # 嘗試直接解析
+                                json_obj = None
+                                try:
+                                    json_obj = json.loads(line)
+                                except json.JSONDecodeError:
+                                    # 如果有來自上一個塊的不完整 JSON，嘗試組合
+                                    if incomplete_json:
+                                        try:
+                                            combined = incomplete_json + line
+                                            json_obj = json.loads(combined)
+                                            incomplete_json = ""  # 成功解析後重置
+                                        except json.JSONDecodeError:
+                                            # 仍然不完整，存儲以待下次迭代
+                                            incomplete_json += line
+                                            continue
+                                    else:
+                                        # 這可能是不完整 JSON 的開始
+                                        incomplete_json = line
+                                        continue
+                                
+                                # 如果我們有成功解析的 JSON 對象
+                                if json_obj and "choices" in json_obj and json_obj["choices"]:
+                                    delta = json_obj["choices"][0].get("delta", {})
+                                    if "content" in delta and delta["content"] is not None:
                                         new_content = delta["content"]
                                         collected_content += new_content
                                         yield collected_content
-                            except json.JSONDecodeError as je:
-                                logger.warning(f"Warning: JSON decode error: {je}. Input: {line[:100]}...")
+                            except Exception as je:
+                                logger.warning(f"Warning: JSON processing error: {je}. Input: {line[:100]}...")
+                                # 不要將此存儲為 incomplete_json，因為它可能無效
+                                incomplete_json = ""  # Reset invalid JSON
                                 continue
                 
-                # 處理緩衝區中的任何剩餘數據
+                # 處理任何剩餘的緩衝區內容
                 if buffer.strip():
-                    for line in buffer.strip().split('\n'):
-                        if line.startswith('data: '):
-                            line = line[6:].strip()
-                            
-                            if line == '[DONE]':
-                                break
+                    if buffer.startswith('data: '):
+                        buffer = buffer[6:].strip()
+                        
+                    if buffer != '[DONE]':
+                        # 嘗試處理任何剩餘的 JSON
+                        try:
+                            combined = incomplete_json + buffer if incomplete_json else buffer
+                            json_obj = None
                             
                             try:
-                                json_response = json.loads(line)
-                                if "choices" in json_response and json_response["choices"]:
-                                    delta = json_response["choices"][0].get("delta", {})
-                                    if "content" in delta and delta["content"]:
-                                        new_content = delta["content"]
-                                        collected_content += new_content
+                                json_obj = json.loads(combined)
                             except json.JSONDecodeError:
-                                continue
-                                
+                                # If we still can't parse it, try to clean it up
+                                # Sometimes we get broken JSON at the end of the stream
+                                try:
+                                    # Try to find the last complete JSON object
+                                    if combined.rstrip().endswith("}"):
+                                        # Find the last opening brace that might start a valid object
+                                        last_open = combined.rfind("{")
+                                        if last_open >= 0:
+                                            # Extract what might be a valid JSON object
+                                            potential_json = combined[last_open:]
+                                            json_obj = json.loads(potential_json)
+                                except:
+                                    logger.warning(f"Warning: Could not parse final buffer content: {buffer[:100]}...")
+                            
+                            if json_obj and "choices" in json_obj and json_obj["choices"]:
+                                delta = json_obj["choices"][0].get("delta", {})
+                                if "content" in delta and delta["content"] is not None:
+                                    new_content = delta["content"]
+                                    collected_content += new_content
+                        except Exception as e:
+                            logger.warning(f"Warning: Error processing final buffer: {str(e)}")
+                            
                 # 確保我們生成最終內容
                 if collected_content:
                     yield collected_content
-                    return
+                return
                     
             except http.client.HTTPException as e:
                 retry_count += 1
@@ -279,4 +319,4 @@ class GrokProvider(LLMProvider):
                 logger.error(f"Error streaming from Grok API: {str(e)}")
                 logger.error(traceback.format_exc())
                 yield f"Error streaming from Grok API: {str(e)}"
-                return 
+                return

@@ -172,6 +172,9 @@ class GrokProvider(LLMProvider):
             
             if response.status == 200:
                 full_response = ""
+                # Buffer for handling incomplete JSON chunks
+                buffer = ""
+                
                 while True:
                     chunk = response.read(1024)
                     if not chunk:
@@ -179,7 +182,12 @@ class GrokProvider(LLMProvider):
                     
                     # Process the chunk
                     chunk_str = chunk.decode('utf-8')
-                    lines = chunk_str.split('\n')
+                    buffer += chunk_str
+                    
+                    # Split buffer by newlines and process complete lines
+                    lines = buffer.split('\n')
+                    # Keep the last (potentially incomplete) line in the buffer
+                    buffer = lines.pop() if lines else ""
                     
                     for line in lines:
                         if line.startswith('data: '):
@@ -198,8 +206,45 @@ class GrokProvider(LLMProvider):
                                         # Only yield the new content chunk, not the full response
                                         yield delta['content']
                                         full_response += delta['content']
-                            except json.JSONDecodeError:
-                                logger.warning(f"Failed to parse JSON from chunk: {json_str}")
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse JSON from chunk: {json_str} - Error: {e}")
+                                # Try to salvage partial content from the malformed JSON
+                                try:
+                                    # Try to extract content between quotes after "content":"
+                                    import re
+                                    content_match = re.search(r'"content":\s*"([^"]*)"', json_str)
+                                    if content_match:
+                                        content = content_match.group(1)
+                                        logger.info(f"Recovered partial content: {content}")
+                                        yield content
+                                        full_response += content
+                                except Exception as recovery_error:
+                                    logger.warning(f"Failed to recover content from malformed JSON: {recovery_error}")
+                
+                # Process any remaining data in buffer
+                if buffer and buffer.startswith('data: ') and buffer.strip() != 'data: [DONE]':
+                    json_str = buffer[6:].strip()
+                    if json_str:
+                        try:
+                            chunk_data = json.loads(json_str)
+                            if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                delta = chunk_data['choices'][0].get('delta', {})
+                                if 'content' in delta and delta['content']:
+                                    yield delta['content']
+                                    full_response += delta['content']
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse JSON from final buffer: {json_str}")
+                            # Try to salvage partial content from the malformed JSON in final buffer
+                            try:
+                                import re
+                                content_match = re.search(r'"content":\s*"([^"]*)"', json_str)
+                                if content_match:
+                                    content = content_match.group(1)
+                                    logger.info(f"Recovered partial content from final buffer: {content}")
+                                    yield content
+                                    full_response += content
+                            except Exception as recovery_error:
+                                logger.warning(f"Failed to recover content from final malformed JSON: {recovery_error}")
                 
                 # Log the complete response at the end
                 elapsed_time = time.time() - start_time

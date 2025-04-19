@@ -29,19 +29,19 @@ class UnwireFetcher:
         
         # Define known categories mapping (from URL path to display name)
         self.categories_map = {
-            'ai': 'AI 人工智能',
-            'fun-tech': '科技生活',
-            'mobile': '手機通訊',
-            'notebook': '筆電電腦',
-            'game': '遊戲電競',
-            'entertainment': '娛樂影音',
-            'photography': '數碼相機',
-            'review': '評測報告',
-            'news': '新聞報導',
-            'gadgets': '數碼產品',
-            'apps': '應用程式',
-            'security-issues': '資訊安全',
-            'tips': '教學技巧',
+            'ai': 'AI & Artificial Intelligence',
+            'fun-tech': 'Tech Lifestyle',
+            'mobile': 'Mobile & Communication',
+            'notebook': 'Laptops & Computers',
+            'game': 'Gaming & E-Sports',
+            'entertainment': 'Entertainment & Audio',
+            'photography': 'Digital Cameras',
+            'review': 'Reviews & Reports',
+            'news': 'News Reports',
+            'gadgets': 'Digital Products',
+            'apps': 'Applications',
+            'security-issues': 'Information Security',
+            'tips': 'Tutorials & Tips',
             'ios': 'iOS',
             'android': 'Android'
         }
@@ -185,10 +185,10 @@ class UnwireFetcher:
                 
                 return category_name
             
-            return "不分類"  # Default if we can't determine the category
+            return "Uncategorized"  # Default if we can't determine the category
         except Exception as e:
             print(f"Error extracting category from URL: {e}")
-            return "不分類"
+            return "Uncategorized"
     
     def parse_news_items(self, html_content):
         """
@@ -395,7 +395,7 @@ class UnwireFetcher:
                 category = self.extract_category_from_url(url)
                 
                 # If we couldn't extract from URL, try the traditional method
-                if category == "不分類":
+                if category == "Uncategorized":
                     cat_elem = article.select_one('.cat-links')
                     if cat_elem:
                         category = cat_elem.get_text(strip=True)
@@ -480,7 +480,7 @@ class UnwireFetcher:
                 # Extract paragraphs and headings
                 for elem in content_elem.find_all(['p', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol']):
                     if elem.name.startswith('h'):
-                        content_text += f"\n【{elem.get_text(strip=True)}】\n\n"
+                        content_text += f"\n[{elem.get_text(strip=True)}]\n\n"
                     elif elem.name == 'blockquote':
                         content_text += f"> {elem.get_text(strip=True)}\n\n"
                     elif elem.name in ['ul', 'ol']:
@@ -571,33 +571,33 @@ class UnwireFetcher:
         content = f"📱 {article['title']} 📱\n\n"
         
         if 'date' in article:
-            content += f"日期: {article['date']}\n"
+            content += f"Date: {article['date']}\n"
         
         if 'author' in article:
-            content += f"作者: {article['author']}\n"
+            content += f"Author: {article['author']}\n"
         
         if 'categories' in article and article['categories']:
-            content += f"類別: {', '.join(article['categories'])}\n"
+            content += f"Categories: {', '.join(article['categories'])}\n"
         
         content += f"Link: {article['url']}\n\n"
         
-        content += "📄 內容 📄\n"
+        content += "📄 Content 📄\n"
         content += "------------------------\n\n"
         content += article['content']
         content += "\n------------------------\n\n"
         
         if 'images' in article and article['images']:
-            content += f"圖片 ({len(article['images'])}):\n"
+            content += f"Images ({len(article['images'])}):\n"
             for i, img in enumerate(article['images'][:3], 1):  # Limit to first 3 images
-                content += f"{i}. {img.get('alt', '圖片')} - {img['url']}\n"
+                content += f"{i}. {img.get('alt', 'Image')} - {img['url']}\n"
             
             if len(article['images']) > 3:
-                content += f"...以及其他 {len(article['images']) - 3} 張圖片\n"
+                content += f"...and {len(article['images']) - 3} more images\n"
             
             content += "\n"
         
         if 'tags' in article and article['tags']:
-            content += f"標籤: {', '.join(article['tags'])}"
+            content += f"Tags: {', '.join(article['tags'])}"
         
         return content
 

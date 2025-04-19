@@ -4,7 +4,6 @@ A multi-platform LLM chat bot framework that currently supports Telegram, with p
 
 ## Known issue
 1. Logging Save Problem
-2. Sometimes LLM response tokens are too large for Telegram's 4096 characters per message limit
 
 ## Directory Structure
 
@@ -42,6 +41,12 @@ src/
 │       └── __init__.py
 └── main.py                 # Application entry point
 ```
+
+
+## Project LLM interface
+1. DeepSeek API : https://platform.deepseek.com/usage
+2. GitHub API : https://github.com/settings/personal-access-tokens
+3. Grok API : Not avabiliable (Custom by myself)
 
 ## Installation
 
