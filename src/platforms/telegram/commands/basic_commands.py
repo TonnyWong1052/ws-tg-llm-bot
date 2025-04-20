@@ -3,6 +3,7 @@ import platform
 import os
 import logging
 import random
+import asyncio
 from telethon import events
 from telethon.errors.rpcerrorlist import FloodWaitError
 from .base import CommandHandler
@@ -65,6 +66,22 @@ class BasicCommandHandler(CommandHandler):
     
     async def ping_handler(self, event):
         """Handle the /ping command"""
+        # Create a unique task ID for this command execution
+        task_id = f"ping_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_ping(event))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+    
+    async def _process_ping(self, event):
+        """Process ping command asynchronously"""
         start_time = time.time()
         message = await event.respond("Pinging...")
         end_time = time.time()
@@ -122,23 +139,40 @@ class BasicCommandHandler(CommandHandler):
     
     async def hi_dog_handler(self, event):
         """Handle /hi_dog command"""
+        # Create a unique task ID for this command execution
+        task_id = f"hi_dog_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_hi_dog(event))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+    
+    async def _process_hi_dog(self, event):
+        """Process hi_dog command asynchronously"""
         try:
             # Dog ASCII arts
             dog_arts = [
                 """
-        .        /\  /\
-         =( ´ •ω• )= 
-          / ͡      ︵\
-        (人_____づ_づ""",
+                /\  /\
+            =( ´ •⁠ω• ⁠)=
+            / ͡      ︵\
+            (⁠人_____づ_づ
+        """,
                 """
-        .·´¯`·.  ·´¯·.
-        __|__
-        | |__ ╲  ╲ ╲
-        |ロ | ╲╲       /\~/\
-        |ロ |     ╲ ╲(     •ω • )
-        |ロ |         ╲⊂          づ
-        |ロ |           ╲ ╲ ⊃⊃╲
-        |ロ |___          ╲| ___ ╲|____
+                .·´¯`·.  ·´¯·.
+        |
+        |   |__     ╲  ╲ ╲
+        |ロ |       ╲╲     /\~/\
+        |ロ |        ╲ ╲  ( •ω • )
+        |ロ |         ╲   ⊂     づ
+        |ロ |          ╲ ╲     ⊃⊃╲
+        |ロ |___        ╲| _ ╲|__
         """,
                 """
         ╱|、
@@ -197,6 +231,22 @@ class BasicCommandHandler(CommandHandler):
     
     async def test_handler(self, event):
         """Handle /test command"""
+        # Create a unique task ID for this command execution
+        task_id = f"test_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_test(event))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+    
+    async def _process_test(self, event):
+        """Process test command asynchronously"""
         try:
             await event.reply("Bot is running! This is a test response.")
         except FloodWaitError as e:
@@ -206,6 +256,22 @@ class BasicCommandHandler(CommandHandler):
     
     async def env_handler(self, event):
         """Handle /env command"""
+        # Create a unique task ID for this command execution
+        task_id = f"env_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_env(event))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+    
+    async def _process_env(self, event):
+        """Process env command asynchronously"""
         try:
             # Get environment information
             environment = os.getenv('ENVIRONMENT', 'Not set')
@@ -231,6 +297,22 @@ class BasicCommandHandler(CommandHandler):
         /unwire - Get today's news
         /unwire 2025-04-15 - Get news from specific date
         """
+        # Create a unique task ID for this command execution
+        task_id = f"unwire_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_unwire(event))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+    
+    async def _process_unwire(self, event):
+        """Process unwire command asynchronously"""
         try:
             # Get the command text and split it
             command_text = event.message.text.split()

@@ -5,6 +5,7 @@ from telethon.errors.rpcerrorlist import FloodWaitError
 from .base import CommandHandler
 from .utils import MessageHelper
 from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE, THINKING_ANIMATIONS
+import time
 
 logger = logging.getLogger("telegram_llm_commands")
 
@@ -54,140 +55,112 @@ class LLMCommandHandler(CommandHandler):
         
         logger.info("LLM command handlers registered")
     
-    async def handle_llm_request(self, event, llm_type, prompt, model_name=None, system_prompt=None, display_name=None):
+    async def handle_llm_request(self, event, provider, prompt, model_name=None, system_prompt=None, display_name=None):
         """
         Handle LLM request
         
         Args:
             event: Telegram event object
-            llm_type: LLM type ('deepseek', 'grok', etc.)
-            prompt: Prompt text
-            model_name: Model name (optional)
-            system_prompt: System prompt (optional)
-            display_name: Display name (optional)
+            provider: LLM provider
+            prompt: Prompt
+            model_name: Model name
+            system_prompt: System prompt
+            display_name: Display name
+            
+        Returns:
+            None
         """
         response_message = None
         
         try:
-            # Send initial response message with animation
-            try:
-                response_message = await event.respond(INITIAL_MESSAGE_ART)
-            except FloodWaitError as e:
-                logger.warning(f"FloodWaitError with art message: {e.seconds} seconds wait required. Using simple message instead.")
-                await asyncio.sleep(2)
-                response_message = await event.respond("Thinking...")
-            except Exception as e:
-                logger.error(f"Error sending initial message: {e}. Using simple message instead.")
-                response_message = await event.respond("Thinking...")
+            # Send initial response message
+            response_message = await event.respond("Processing, please wait...")
             
             # Ensure LLM client is initialized
-            if not self.llm_client:
+            if not self.client.llm_client:
                 await response_message.edit("LLM client not initialized, cannot process request.")
                 return
             
-            # Log information about available providers
-            logger.info(f"Available LLM providers: {list(self.llm_client.providers.keys()) if hasattr(self.llm_client, 'providers') else 'No providers'}")
+            model = model_name if model_name else provider
             
-            # Check if the requested provider is available
-            if hasattr(self.llm_client, 'providers') and llm_type not in self.llm_client.providers:
-                await response_message.edit(f"Provider '{llm_type}' is not available. Available providers: {list(self.llm_client.providers.keys())}")
-                return
+            # Get appropriate stream generator based on provider
+            stream_generator = self.client.llm_client.call_llm_stream(provider, prompt, model=model)
             
-            model = model_name if model_name else llm_type
-            
-            logger.info(f"Calling {llm_type} with prompt: {prompt[:50]}...")
-            
-            try:
-                # Get stream generator
-                stream_generator = self.llm_client.call_llm_stream(llm_type, prompt, model=model, system_prompt=system_prompt)
-                
-                # Process stream and update message
-                await MessageHelper.process_stream_with_updates(
-                    message_obj=response_message,
-                    stream_generator=stream_generator,
-                    min_update_interval=0
-                )
-                
-            except AttributeError as e:
-                # Fall back to non-streaming method if streaming is not available
-                logger.warning(f"Streaming not available for {llm_type}, falling back to non-streaming method: {e}")
-                response = self.llm_client.call_llm(llm_type, prompt, model=model, system_prompt=system_prompt)
-                await MessageHelper.safe_send_message(response_message, response)
+            # Process stream and update message - increased update interval to 3.0 seconds to avoid repetition issues
+            await MessageHelper.process_stream_with_updates(
+                message_obj=response_message, 
+                stream_generator=stream_generator,
+                min_update_interval=3.0  # Increased from default 1.5 seconds
+            )
             
         except FloodWaitError as e:
             await self.handle_flood_wait_error(event, e, response_message)
             
         except Exception as e:
-            logger.error(f"Error in handle_llm_request: {e}")
+            self.logger.error(f"Error in handle_llm_request: {e}")
             import traceback
             traceback.print_exc()
             
             # Try to send error message
             await self.handle_error(event, e, response_message)
     
+    async def _process_llm_request(self, llm_type, prompt, model, system_prompt, response_message):
+        """
+        Process LLM request asynchronously
+        
+        Args:
+            llm_type: LLM type
+            prompt: Prompt text
+            model: Model name
+            system_prompt: System prompt
+            response_message: Response message object
+        """
+        try:
+            # Get stream generator
+            stream_generator = self.llm_client.call_llm_stream(llm_type, prompt, model=model, system_prompt=system_prompt)
+            
+            # Process stream and update message
+            await MessageHelper.process_stream_with_updates(
+                message_obj=response_message,
+                stream_generator=stream_generator,
+                min_update_interval=0
+            )
+            
+        except AttributeError as e:
+            # Fall back to non-streaming method if streaming is not available
+            logger.warning(f"Streaming not available for {llm_type}, falling back to non-streaming method: {e}")
+            response = self.llm_client.call_llm(llm_type, prompt, model=model, system_prompt=system_prompt)
+            await MessageHelper.safe_send_message(response_message, response)
+            
+        except Exception as e:
+            logger.error(f"Error in _process_llm_request: {e}")
+            await response_message.edit(f"Error occurred: {str(e)}")
+    
     async def deepseek_handler(self, event):
-        """DeepSeek command handler"""
-        # Get prompt from message
-        prompt = event.pattern_match.group(1).strip()
+        """Handle the /deepseek command"""
+        # Create a unique task ID for this command execution
+        task_id = f"deepseek_{event.id}_{int(time.time())}"
         
-        # If prompt is empty, return help message
-        if not prompt:
-            await event.reply("Please provide content to process: /deepseek your question or request")
-            return
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_deepseek(event))
         
-        # Use handle_llm_request for processing
-        system_prompt = "You are DeepSeek Coder, a helpful coding assistant. Always provide clear and concise responses."
-        await self.handle_llm_request(
-            event, 
-            'deepseek', 
-            prompt, 
-            model_name="deepseek-coder-33b-instruct", 
-            system_prompt=system_prompt, 
-            display_name="DeepSeek Coder"
-        )
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.client.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
     
     async def r1_handler(self, event):
-        """R1 command handler that uses the deepseek-reasoner model"""
-        # Get prompt from message
-        prompt = event.pattern_match.group(1).strip()
-        
-        # If prompt is empty, return help message
-        if not prompt:
-            await event.reply("Please provide content to process: /r1 your question or request")
-            return
-        
-        # Use handle_llm_request for processing
-        system_prompt = "You are a helpful AI assistant with strong reasoning capabilities. Think through problems step by step and provide detailed, logical explanations with clear reasoning chains."
-        await self.handle_llm_request(
-            event, 
-            'deepseek', 
-            prompt, 
-            model_name="deepseek-reasoner",
-            system_prompt=system_prompt, 
-            display_name="R1 Reasoner"
-        )
-    
-    async def gpt_handler(self, event):
-        """GPT command handler"""
-        # Get prompt from message
-        prompt = event.pattern_match.group(1).strip()
-        
-        # If prompt is empty, return help message
-        if not prompt:
-            await event.reply("Please provide content to process: /gpt your question or request")
-            return
-        
-        # Use handle_llm_request for processing
-        system_prompt = "You are a helpful AI assistant called GPT. Always provide clear and comprehensive responses."
-        await self.handle_llm_request(
-            event, 
-            'openai',  # Changed from 'gpt' to 'openai' to match the available provider
-            prompt, 
-            system_prompt=system_prompt, 
-            model_name="gpt-4o-mini",
-            display_name="GPT"
-        )
-    
+        """Handle the /r1 command"""
+        task_id = f"r1_{event.id}_{int(time.time())}"
+        task = asyncio.create_task(self._process_r1(event))
+        self.client.handlers[task_id] = task
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+
     async def grok_handler(self, event):
         """Grok command handler"""
         # Get prompt from message
@@ -335,3 +308,250 @@ class LLMCommandHandler(CommandHandler):
                 await event.reply(f"Error occurred: {str(e)}")
         except Exception as reply_error:
             logger.error(f"Unable to send error message: {reply_error}")
+
+    async def _process_r1(self, event):
+        """Process R1 command asynchronously"""
+        try:
+            # Get prompt from message
+            prompt = event.pattern_match.group(1).strip()
+            
+            # If prompt is empty, return help message
+            if not prompt:
+                await event.reply("Please provide content to process: /r1 your question or request")
+                return
+            
+            # Send initial response message with animation
+            response_message = await event.respond(INITIAL_MESSAGE_ART)
+            
+            # Store message in task_messages
+            task_id = f"r1_{event.id}_{int(time.time())}"
+            self.client.task_messages[task_id] = response_message
+            self.client.task_start_times[task_id] = time.time()
+            
+            # Create an async generator for the stream
+            async def stream_generator():
+                # Get stream generator
+                sync_generator = self.client.llm_client.call_llm_stream(
+                    'deepseek', 
+                    prompt, 
+                    model="deepseek-reasoner",
+                    system_prompt="You are a helpful AI assistant with strong reasoning capabilities. Think through problems step by step and provide detailed, logical explanations with clear reasoning chains."
+                )
+                
+                # Convert sync generator to async
+                for chunk in sync_generator:
+                    if chunk:
+                        yield chunk
+                    # Small delay to allow other coroutines to run
+                    await asyncio.sleep(0)
+            
+            # Process stream and update message
+            current_text = ""
+            async for chunk in stream_generator():
+                try:
+                    current_text += chunk
+                    # Update message if it's significantly different
+                    if len(current_text) % 50 == 0:  # Update every 50 chars
+                        await response_message.edit(current_text)
+                        await asyncio.sleep(0.1)  # Small delay to prevent rate limiting
+                        
+                except FloodWaitError as e:
+                    await asyncio.sleep(e.seconds)
+                    continue
+                except Exception as e:
+                    logger.error(f"Error updating message: {e}")
+                    continue
+            
+            # Final update to ensure we don't miss the last chunk
+            if current_text:
+                try:
+                    await response_message.edit(current_text)
+                except Exception as e:
+                    logger.error(f"Error in final message update: {e}")
+            
+        except FloodWaitError as e:
+            await self.handle_flood_wait_error(event, e)
+        except Exception as e:
+            logger.error(f"Error in _process_r1: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.handle_error(event, e)
+
+    async def _process_deepseek(self, event):
+        """Process deepseek command asynchronously"""
+        try:
+            # Get prompt from message
+            prompt = event.pattern_match.group(1).strip()
+            
+            # If prompt is empty, return help message
+            if not prompt:
+                await event.reply("Please provide content to process: /deepseek your question or request")
+                return
+            
+            # Send initial response message with animation
+            response_message = await event.respond(INITIAL_MESSAGE_ART)
+            
+            # Store message in task_messages
+            task_id = f"deepseek_{event.id}_{int(time.time())}"
+            self.client.task_messages[task_id] = response_message
+            self.client.task_start_times[task_id] = time.time()
+            
+            # Create an async generator for the stream
+            async def stream_generator():
+                # Get stream generator
+                sync_generator = self.client.llm_client.call_llm_stream(
+                    'deepseek', 
+                    prompt, 
+                    model="deepseek-reasoner",
+                    system_prompt="You are a helpful AI assistant called DeepSeek. Always provide clear, detailed and accurate responses."
+                )
+                
+                # Convert sync generator to async
+                for chunk in sync_generator:
+                    if chunk:
+                        yield chunk
+                    # Small delay to allow other coroutines to run
+                    await asyncio.sleep(0)
+            
+            # Process stream and update message
+            current_text = ""
+            async for chunk in stream_generator():
+                try:
+                    current_text += chunk
+                    # Update message if it's significantly different
+                    if len(current_text) % 50 == 0:  # Update every 50 chars
+                        await response_message.edit(current_text)
+                        await asyncio.sleep(0.1)  # Small delay to prevent rate limiting
+                        
+                except FloodWaitError as e:
+                    await asyncio.sleep(e.seconds)
+                    continue
+                except Exception as e:
+                    logger.error(f"Error updating message: {e}")
+                    continue
+            
+            # Final update to ensure we don't miss the last chunk
+            if current_text:
+                try:
+                    await response_message.edit(current_text)
+                except Exception as e:
+                    logger.error(f"Error in final message update: {e}")
+            
+        except FloodWaitError as e:
+            await self.handle_flood_wait_error(event, e)
+        except Exception as e:
+            logger.error(f"Error in _process_deepseek: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.handle_error(event, e)
+
+    async def env_handler(self, event):
+        """Handle the /env command"""
+        try:
+            # Get environment information
+            import os
+            import sys
+            import platform
+            
+            env_info = [
+                f"Python version: {sys.version}",
+                f"Platform: {platform.platform()}",
+                f"Working directory: {os.getcwd()}",
+                f"Environment variables: {len(os.environ)} variables set"
+            ]
+            
+            await event.reply("\n".join(env_info))
+        except Exception as e:
+            await self.handle_error(event, e)
+
+    async def ping_handler(self, event):
+        """Handle the /ping command"""
+        try:
+            import time
+            start_time = time.time()
+            message = await event.reply("Pong!")
+            end_time = time.time()
+            
+            # Calculate round trip time
+            rtt = (end_time - start_time) * 1000  # Convert to milliseconds
+            
+            await message.edit(f"Pong! RTT: {rtt:.2f}ms")
+        except Exception as e:
+            await self.handle_error(event, e)
+
+    async def gpt_handler(self, event):
+        """Handle the /gpt command"""
+        task_id = f"gpt_{event.id}_{int(time.time())}"
+        task = asyncio.create_task(self._process_gpt(event))
+        self.client.handlers[task_id] = task
+        self.client.active_tasks.add(task)
+        task.add_done_callback(self.client.active_tasks.discard)
+        task.add_done_callback(lambda t: self.client.handlers.pop(task_id, None))
+
+    async def _process_gpt(self, event):
+        """Process GPT command asynchronously"""
+        try:
+            # Get prompt from message
+            prompt = event.pattern_match.group(1).strip()
+            
+            # If prompt is empty, return help message
+            if not prompt:
+                await event.reply("Please provide content to process: /gpt your question or request")
+                return
+            
+            # Send initial response message with animation
+            response_message = await event.respond(INITIAL_MESSAGE_ART)
+            
+            # Store message in task_messages
+            task_id = f"gpt_{event.id}_{int(time.time())}"
+            self.client.task_messages[task_id] = response_message
+            self.client.task_start_times[task_id] = time.time()
+            
+            # Create an async generator for the stream
+            async def stream_generator():
+                # Get stream generator using GitHub API
+                sync_generator = self.client.llm_client.call_llm_stream(
+                    'github', 
+                    prompt, 
+                    model="gpt-4o-mini",  # GitHub hosted model
+                    system_prompt="You are GPT, a helpful AI assistant. Always provide clear, detailed and accurate responses."
+                )
+                
+                # Convert sync generator to async
+                for chunk in sync_generator:
+                    if chunk:
+                        yield chunk
+                    # Small delay to allow other coroutines to run
+                    await asyncio.sleep(0)
+            
+            # Process stream and update message
+            current_text = ""
+            async for chunk in stream_generator():
+                try:
+                    current_text += chunk
+                    # Update message if it's significantly different
+                    if len(current_text) % 50 == 0:  # Update every 50 chars
+                        await response_message.edit(current_text)
+                        await asyncio.sleep(0.1)  # Small delay to prevent rate limiting
+                        
+                except FloodWaitError as e:
+                    await asyncio.sleep(e.seconds)
+                    continue
+                except Exception as e:
+                    logger.error(f"Error updating message: {e}")
+                    continue
+            
+            # Final update to ensure we don't miss the last chunk
+            if current_text:
+                try:
+                    await response_message.edit(current_text)
+                except Exception as e:
+                    logger.error(f"Error in final message update: {e}")
+            
+        except FloodWaitError as e:
+            await self.handle_flood_wait_error(event, e)
+        except Exception as e:
+            logger.error(f"Error in _process_gpt: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.handle_error(event, e)

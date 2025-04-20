@@ -38,7 +38,10 @@ class TelegramBot(BotBase):
         self.flood_handler = FloodWaitHandler()
         self.stream_handler = StreamHandler(config.telegram_max_length)
         self.message_helper = MessageHelper()
-        self.handlers = {}
+        self.handlers = {}  # Dictionary to store command tasks
+        self.active_tasks = set()  # Set to track active tasks
+        self.task_messages = {}  # Dictionary to store task messages
+        self.task_start_times = {}  # Dictionary to store task start times
         self.logger = logger
         self.llm_client = None
     
@@ -48,24 +51,24 @@ class TelegramBot(BotBase):
         """
         self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
         
-        # 初始化 LLM 客戶端
+        # Initialize LLM client
         await self._initialize_llm_client()
         
-        # 註冊命令處理程序
+        # Register command handlers
         await self._register_handlers()
         
         self.logger.info("Telegram bot initialized")
     
     async def _initialize_llm_client(self):
         """
-        初始化 LLM 客戶端
+        Initialize LLM client
         """
         try:
             from api.llm_client import LLMClient
             self.llm_client = LLMClient()
             self.logger.info("LLM client initialized successfully")
             
-            # 檢查已註冊的提供者
+            # Check registered providers
             if hasattr(self.llm_client, 'providers'):
                 self.logger.info(f"Registered providers: {list(self.llm_client.providers.keys())}")
             else:
@@ -78,27 +81,69 @@ class TelegramBot(BotBase):
     
     async def _register_handlers(self):
         """
-        註冊所有命令處理程序
+        Register all command handlers
         """
-        # 註冊基本命令處理程序
-        basic_handler = BasicCommandHandler(self.client, self.llm_client)
+        # Register basic command handlers
+        basic_handler = BasicCommandHandler(self, self.llm_client)
         await basic_handler.register_handlers()
         self.logger.info("Basic command handlers registered")
         
-        # 註冊 LLM 命令處理程序
+        # Register LLM command handlers
         if self.llm_client:
             self.logger.info("Initializing LLM command handlers")
-            llm_handler = LLMCommandHandler(self.client, self.llm_client)
+            llm_handler = LLMCommandHandler(self, self.llm_client)
             await llm_handler.register_handlers()
             self.logger.info("LLM command handlers registered")
         else:
             self.logger.warning("LLM client not initialized, LLM commands will not be available")
+    
+    async def _monitor_tasks(self):
+        """
+        Monitor active tasks and clean up completed or failed tasks
+        """
+        while True:
+            try:
+                # Check all active tasks
+                for task in list(self.active_tasks):
+                    if task.done():
+                        # Remove from active tasks
+                        self.active_tasks.discard(task)
+                        
+                        # Get task ID and clean up
+                        for task_id, t in list(self.handlers.items()):
+                            if t == task:
+                                self.handlers.pop(task_id, None)
+                                message = self.task_messages.pop(task_id, None)
+                                start_time = self.task_start_times.pop(task_id, None)
+                                
+                                # Log completion time if we have start time
+                                if start_time:
+                                    duration = time.time() - start_time
+                                    self.logger.info(f"Task {task_id} completed in {duration:.2f} seconds")
+                                
+                                # Handle any exceptions
+                                if task.exception():
+                                    self.logger.error(f"Task {task_id} failed: {task.exception()}")
+                                    if message:
+                                        try:
+                                            await message.edit(f"Error: {str(task.exception())}")
+                                        except:
+                                            pass
+                                break
+                
+                await asyncio.sleep(1)  # Check every second
+            except Exception as e:
+                self.logger.error(f"Error in task monitor: {e}")
+                await asyncio.sleep(5)  # Wait longer on error
     
     async def start(self):
         """
         Start the Telegram bot
         """
         await super().start()
+        
+        # Start task monitor
+        self.monitor_task = asyncio.create_task(self._monitor_tasks())
         
         # Check if we're running in a non-interactive environment (e.g., server)
         is_interactive = os.isatty(sys.stdin.fileno()) if hasattr(sys, 'stdin') and hasattr(sys.stdin, 'fileno') else False
@@ -131,7 +176,23 @@ class TelegramBot(BotBase):
         """
         Stop the Telegram bot
         """
-        await super().stop()
+        # Cancel monitor task
+        if hasattr(self, 'monitor_task'):
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Cancel all active tasks
+        for task in self.active_tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
         if self.client:
             await self.client.disconnect()
         self.logger.info("Telegram bot stopped")
@@ -192,6 +253,16 @@ class TelegramBot(BotBase):
             Message: The sent message object
         """
         return await self.client.send_file(chat_id, file, **kwargs)
+    
+    def add_event_handler(self, callback, event_type):
+        """
+        Add an event handler to the Telegram client
+        
+        Args:
+            callback: The callback function to handle the event
+            event_type: The event type to handle
+        """
+        self.client.add_event_handler(callback, event_type)
     
     async def run(self):
         """

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import io
 import re
+import time
 from telethon import events
 from telethon.errors.rpcerrorlist import FloodWaitError
 
@@ -64,7 +65,19 @@ class TelegramMessageHandler(MessageHandler):
         
         @self.bot.client.on(events.NewMessage(pattern=pattern))
         async def command_handler(event):
-            await self.handle_command(cmd_name, event)
+            # Create a unique task ID for this command execution
+            task_id = f"{cmd_name}_{event.id}_{int(time.time())}"
+            
+            # Create a task for command processing
+            task = asyncio.create_task(self._process_command_async(cmd_info, event, task_id))
+            
+            # Store the task in the bot's handlers dictionary with the unique task ID
+            self.bot.handlers[task_id] = task
+            
+            # Add task to active tasks set
+            self.bot.active_tasks.add(task)
+            task.add_done_callback(self.bot.active_tasks.discard)
+            task.add_done_callback(lambda t: self.bot.handlers.pop(task_id, None))
         
         # Store handler reference
         self.bot.handlers[cmd_name] = command_handler
@@ -82,7 +95,19 @@ class TelegramMessageHandler(MessageHandler):
         if message.text and message.text.startswith('/'):
             cmd_info, match = command_registry.match_command(message.text, 'telegram')
             if cmd_info:
-                await self.handle_command(cmd_info['name'], message, match=match)
+                # Create a unique task ID for this command execution
+                task_id = f"{cmd_info['name']}_{message.id}_{int(time.time())}"
+                
+                # Create a task for command processing
+                task = asyncio.create_task(self._process_command_async(cmd_info, message, task_id, match=match))
+                
+                # Store the task in the bot's handlers dictionary with the unique task ID
+                self.bot.handlers[task_id] = task
+                
+                # Add task to active tasks set
+                self.bot.active_tasks.add(task)
+                task.add_done_callback(self.bot.active_tasks.discard)
+                task.add_done_callback(lambda t: self.bot.handlers.pop(task_id, None))
                 return
             
             # Unknown command
@@ -108,6 +133,32 @@ class TelegramMessageHandler(MessageHandler):
             await event.reply(f"Command /{command} not found or not available for Telegram.")
             return
         
+        # Create a unique task ID for this command execution
+        task_id = f"{command}_{event.id}_{int(time.time())}"
+        
+        # Create a task for command processing
+        task = asyncio.create_task(self._process_command_async(cmd_info, event, task_id, match=match))
+        
+        # Store the task in the bot's handlers dictionary with the unique task ID
+        self.bot.handlers[task_id] = task
+        
+        # Add task to active tasks set
+        self.bot.active_tasks.add(task)
+        task.add_done_callback(self.bot.active_tasks.discard)
+        task.add_done_callback(lambda t: self.bot.handlers.pop(task_id, None))
+    
+    async def _process_command_async(self, cmd_info, event, task_id, **kwargs):
+        """
+        Process a command asynchronously
+        
+        Args:
+            cmd_info: Command information
+            event: Telegram event object
+            task_id: Unique task ID
+            **kwargs: Additional parameters
+        """
+        match = kwargs.get('match')
+        
         try:
             # Call the command handler
             if match:
@@ -117,8 +168,8 @@ class TelegramMessageHandler(MessageHandler):
                 # Otherwise call the handler directly
                 await cmd_info['handler'](event)
         except Exception as e:
-            logger.error(f"Error handling command {command}: {e}")
-            await event.reply(f"Error executing command /{command}: {str(e)}")
+            logger.error(f"Error processing command {task_id}: {e}")
+            await event.reply(f"Error executing command: {str(e)}")
     
     async def handle_llm_request(self, event, provider, prompt, model_name=None, system_prompt=None, display_name=None):
         """
