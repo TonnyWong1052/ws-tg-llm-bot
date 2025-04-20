@@ -83,11 +83,11 @@ src/
    - Example: `/deepseek what is machine learning?`
 
 4. `/grok <prompt>`
-   - Use Grok model for general queries
+   - Use Grok3 model for general queries
    - Example: `/grok tell me about AI`
 
 5. `/grok_think <prompt>`
-   - Use Grok model with thinking animation
+   - Use Grok3 think model
    - Example: `/grok_think analyze this problem step by step`
 
 ### Utility Commands
