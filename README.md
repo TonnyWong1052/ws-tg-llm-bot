@@ -18,7 +18,6 @@ A multi-platform LLM chat bot framework that currently supports Telegram, with p
 scripts/az_deploy.sh
 ```
 
-
 ## Directory Structure
 
 ```
@@ -67,6 +66,45 @@ src/
    - Status: Not available (Custom implementation)
    - Features: Custom functionality
    - Limitations: Internal use only
+
+## Available Commands
+
+### LLM Commands
+1. `/gpt <prompt>`
+   - Use GitHub-hosted GPT model
+   - Example: `/gpt explain quantum computing`
+
+2. `/r1 <prompt>`
+   - Use DeepSeek Reasoner model for step-by-step reasoning
+   - Example: `/r1 solve this math problem: 2x + 5 = 15`
+
+3. `/deepseek <prompt>`
+   - Direct access to DeepSeek model
+   - Example: `/deepseek what is machine learning?`
+
+4. `/grok <prompt>`
+   - Use Grok model for general queries
+   - Example: `/grok tell me about AI`
+
+5. `/grok_think <prompt>`
+   - Use Grok model with thinking animation
+   - Example: `/grok_think analyze this problem step by step`
+
+### Utility Commands
+1. `/ping`
+   - Check bot response time
+   - Shows Round Trip Time (RTT)
+
+2. `/env`
+   - Show environment information
+
+### Service Command
+1. `/unwire`
+   - Get Today news from Unwire.hk
+
+2. `/unwire 2025-04-15`
+   - Get news from a specific date
+
 
 ## Installation Guide
 
