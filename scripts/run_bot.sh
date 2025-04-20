@@ -6,90 +6,120 @@ PROJECT_ROOT=$(pwd)
 # Create logs directory if it doesn't exist
 mkdir -p logs
 
+# Function to log errors
+log_error() {
+    local message=$1
+    echo "$(date): ERROR - $message" >> logs/error.log
+    echo "❌ $message"
+}
+
+# Function to log info
+log_info() {
+    local message=$1
+    echo "$(date): INFO - $message" >> logs/bot_run.log
+    echo "ℹ️ $message"
+}
+
+# Function to check if a process exists
+check_process() {
+    local pattern=$1
+    if pgrep -f "$pattern" > /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # First determine exactly which Python command is available
-echo "Detecting available Python command..."
+log_info "Detecting available Python command..."
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
-    echo "Found python3 command"
+    log_info "Found python3 command"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
-    echo "Found python command"
+    log_info "Found python command"
 else
-    echo "Error: No Python interpreter found. Please install Python 3."
-    echo "This error has been logged to logs/error.log"
-    echo "$(date): No Python interpreter found. Please install Python 3." >> logs/error.log
+    log_error "No Python interpreter found. Please install Python 3."
     exit 1
 fi
 
 # Check Python version to ensure it's 3.x
 PYTHON_VERSION=$($PYTHON_CMD --version 2>&1)
-echo "Python version: $PYTHON_VERSION"
+log_info "Python version: $PYTHON_VERSION"
 
 # Determine which pip command to use
 if command -v pip3 &> /dev/null; then
     PIP_CMD="pip3"
-    echo "Found pip3 command"
+    log_info "Found pip3 command"
 elif command -v pip &> /dev/null; then
     PIP_CMD="pip"
-    echo "Found pip command"
+    log_info "Found pip command"
 else
-    echo "Warning: pip not found. Will skip package installation."
-    echo "$(date): Warning: pip not found. Will skip package installation." >> logs/error.log
+    log_error "pip not found. Will skip package installation."
     PIP_CMD=""
 fi
 
 # Check for any running bot processes and terminate them
-if pgrep -f "python.*userbot_tg.py" > /dev/null; then
-    echo "Found existing bot process. Terminating it..."
-    pkill -f "python.*userbot_tg.py"
+if check_process "python.*main.py"; then
+    log_info "Found existing bot process. Terminating it..."
+    if ! pkill -f "python.*main.py"; then
+        log_error "Failed to terminate existing bot process"
+        exit 1
+    fi
     sleep 5
 fi
 
 # Remove journal file if it exists (fixes locked database issues)
 if [ -f "session_name.session-journal" ]; then
-    echo "Removing session journal file to prevent database locks..."
-    rm session_name.session-journal
+    log_info "Removing session journal file to prevent database locks..."
+    rm session_name.session-journal || {
+        log_error "Failed to remove session journal file"
+        exit 1
+    }
 fi
 
 # Install required packages if pip is available
 if [ -n "$PIP_CMD" ]; then
-    echo "Installing required packages using $PIP_CMD..."
-    $PIP_CMD install -r requirements.txt --user
+    log_info "Installing required packages using $PIP_CMD..."
+    if ! $PIP_CMD install -r requirements.txt --user; then
+        log_error "Failed to install required packages"
+        exit 1
+    fi
 else
-    echo "Skipping package installation since pip is not available."
+    log_info "Skipping package installation since pip is not available."
 fi
 
 # Make sure the config directory exists
-mkdir -p config
+mkdir -p config || {
+    log_error "Failed to create config directory"
+    exit 1
+}
 
 # If .env file exists in root, move it to config directory
 if [ -f ".env" ]; then
-    echo "Moving .env file to config directory..."
-    mv .env config/.env
+    log_info "Moving .env file to config directory..."
+    mv .env config/.env || {
+        log_error "Failed to move .env file"
+        exit 1
+    }
 fi
 
 # Check if the session file exists - if not, try to verify it
 if [ ! -f "session_name.session" ]; then
-    echo "Telegram session file not found. Checking if we can create it..."
+    log_info "Telegram session file not found. Checking if we can create it..."
     
     # Check if we're running interactively
     if [ -t 0 ]; then
-        echo "Running in interactive mode. Will try to create a session file."
+        log_info "Running in interactive mode. Will try to create a session file."
         echo "You'll need to enter the code sent to your Telegram app."
-        $PYTHON_CMD scripts/setup_session.py
-        
-        if [ $? -ne 0 ]; then
-            echo "❌ Failed to create Telegram session file."
-            echo "This error has been logged to logs/error.log"
-            echo "$(date): Failed to create Telegram session file." >> logs/error.log
+        if ! $PYTHON_CMD scripts/setup_session.py; then
+            log_error "Failed to create Telegram session file."
             exit 1
         fi
     else
-        echo "❌ Running in non-interactive mode but session file is missing."
+        log_error "Running in non-interactive mode but session file is missing."
         echo "Please run 'python scripts/setup_session.py' on your local machine first,"
         echo "then upload the session_name.session file to your server."
-        echo "This error has been logged to logs/error.log"
-        echo "$(date): No session file found and running in non-interactive mode." >> logs/error.log
         exit 1
     fi
 fi
@@ -117,13 +147,13 @@ check_session_lock() {
 }
 
 while true; do
-  if ! pgrep -f "python.*userbot_tg.py" > /dev/null; then
+  if ! pgrep -f "python.*main.py" > /dev/null; then
     echo "[\$(date)] Bot process not found, restarting..." >> "\$LOG_DIR/monitor.log"
     # Check for session locks before starting
     check_session_lock
     
     # Start the bot with explicit path to python
-    nohup \$PYTHON_CMD \$(pwd)/src/userbot/userbot_tg.py > "\$LOG_DIR/bot_output.log" 2>&1 &
+    nohup \$PYTHON_CMD \$(pwd)/src/main.py > "\$LOG_DIR/bot_output.log" 2>&1 &
     BOT_PID=\$!
     echo "[\$(date)] Bot restarted with PID \$BOT_PID" >> "\$LOG_DIR/monitor.log"
     
@@ -146,36 +176,35 @@ while true; do
 done
 EOF
 
-chmod +x ${PROJECT_ROOT}/scripts/monitor_bot.sh
+chmod +x ${PROJECT_ROOT}/scripts/monitor_bot.sh || {
+    log_error "Failed to make monitor_bot.sh executable"
+    exit 1
+}
 
 # Verify session file before starting
-echo "Verifying Telegram session file..."
-$PYTHON_CMD scripts/setup_session.py --verify
-if [ $? -ne 0 ]; then
-    echo "❌ Telegram session file verification failed."
+log_info "Verifying Telegram session file..."
+if ! $PYTHON_CMD scripts/setup_session.py --verify; then
+    log_error "Telegram session file verification failed."
     echo "Please run 'python scripts/setup_session.py' to create a valid session."
-    echo "This error has been logged to logs/error.log"
-    echo "$(date): Failed to verify Telegram session file." >> logs/error.log
     exit 1
 fi
 
 # Start the bot using nohup
-echo "Starting Telegram bot with nohup using $PYTHON_CMD..."
-echo "Full command: nohup $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py > logs/bot_output.log 2>&1"
-nohup $PYTHON_CMD $(pwd)/src/userbot/userbot_tg.py > logs/bot_output.log 2>&1 &
+log_info "Starting Telegram bot with nohup using $PYTHON_CMD..."
+echo "Full command: nohup $PYTHON_CMD $(pwd)/src/main.py > logs/bot_output.log 2>&1"
+nohup $PYTHON_CMD $(pwd)/src/main.py > logs/bot_output.log 2>&1 &
 BOT_PID=$!
 
 # Verify the bot started properly
 sleep 5
 if ! ps -p $BOT_PID > /dev/null; then
-    echo "❌ Bot failed to start! Please check logs/bot_output.log for details"
+    log_error "Bot failed to start! Please check logs/bot_output.log for details"
     echo "Last 20 lines of bot_output.log:"
     tail -n 20 logs/bot_output.log
     
     # Check for authentication error specifically
     if grep -q "not authorized" logs/bot_output.log || grep -q "EOF when reading a line" logs/bot_output.log; then
-        echo ""
-        echo "AUTHENTICATION ERROR DETECTED: The bot needs to authenticate with Telegram."
+        log_error "AUTHENTICATION ERROR DETECTED: The bot needs to authenticate with Telegram."
         echo "Please run 'python scripts/setup_session.py' on your local machine first,"
         echo "then upload the session_name.session file to your server."
     fi
@@ -184,7 +213,7 @@ if ! ps -p $BOT_PID > /dev/null; then
 fi
 
 # Start the monitor script in background
-echo "Starting monitor script..."
+log_info "Starting monitor script..."
 nohup bash scripts/monitor_bot.sh > logs/monitor_output.log 2>&1 &
 MONITOR_PID=$!
 
@@ -195,8 +224,8 @@ cat > ${PROJECT_ROOT}/scripts/check_status.sh << 'EOF'
 cd "$(dirname "$0")/.." || exit
 
 echo "=== Telegram Bot Status ==="
-if pgrep -f "python.*userbot_tg.py" > /dev/null; then
-    echo "✅ Bot is running with PID: $(pgrep -f "python.*userbot_tg.py")"
+if pgrep -f "python.*main.py" > /dev/null; then
+    echo "✅ Bot is running with PID: $(pgrep -f "python.*main.py")"
 else
     echo "❌ Bot is NOT running!"
 fi
@@ -225,27 +254,29 @@ else
 fi
 EOF
 
-chmod +x ${PROJECT_ROOT}/scripts/check_status.sh
+chmod +x ${PROJECT_ROOT}/scripts/check_status.sh || {
+    log_error "Failed to make check_status.sh executable"
+    exit 1
+}
 
 # Verify both processes started
-echo ""
-echo "========================================================="
+log_info "========================================================="
 if ps -p $BOT_PID > /dev/null; then
-    echo "✅ Bot started successfully with PID: $BOT_PID"
+    log_info "✅ Bot started successfully with PID: $BOT_PID"
 else
-    echo "❌ Failed to start bot"
+    log_error "❌ Failed to start bot"
 fi
 
 if ps -p $MONITOR_PID > /dev/null; then
-    echo "✅ Monitor started successfully with PID: $MONITOR_PID"
+    log_info "✅ Monitor started successfully with PID: $MONITOR_PID"
 else
-    echo "❌ Failed to start monitor"
+    log_error "❌ Failed to start monitor"
 fi
 
-echo ""
-echo "To check status: bash scripts/check_status.sh"
-echo "To view bot logs: cat logs/bot_output.log"
-echo "To view monitor logs: cat logs/monitor.log"
-echo "To stop the bot: pkill -f \"python.*userbot_tg.py\""
-echo "To stop everything: pkill -f \"python.*userbot_tg.py\"; pkill -f \"monitor_bot.sh\""
-echo "========================================================="
+log_info ""
+log_info "To check status: bash scripts/check_status.sh"
+log_info "To view bot logs: cat logs/bot_output.log"
+log_info "To view monitor logs: cat logs/monitor.log"
+log_info "To stop the bot: pkill -f \"python.*main.py\""
+log_info "To stop everything: pkill -f \"python.*main.py\"; pkill -f \"monitor_bot.sh\""
+log_info "========================================================="

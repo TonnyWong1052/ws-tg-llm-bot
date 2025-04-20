@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from dotenv import load_dotenv
 import toml
 
@@ -31,6 +32,9 @@ class Config:
         
         # Load from credentials file (as fallback)
         self._load_credentials()
+        
+        # Load MCP server configurations
+        self.mcp_servers = self._load_mcp_config()
         
         # Message length limits
         self.telegram_max_length = 2500
@@ -67,6 +71,29 @@ class Config:
                 self.secrets = {}
         else:
             self.secrets = {}
+
+    def _load_mcp_config(self):
+        """
+        Load MCP server configuration from JSON file
+        
+        Returns:
+            dict: Dictionary containing MCP server configurations
+        """
+        config_dir = os.path.join(os.path.dirname(parent_dir), 'config')
+        file_path = os.path.join(config_dir, 'mcp_config.json')
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    mcp_config = json.load(f)
+                print(f"Loaded MCP server configurations from {file_path}")
+                return mcp_config.get('mcpServers', {})
+            except Exception as e:
+                print(f"Error loading MCP config file: {e}")
+                return {}
+        else:
+            print(f"MCP config file not found at {file_path}")
+            return {}
     
     def is_test_environment(self):
         """
@@ -88,6 +115,18 @@ class Config:
             return self.grok_api_key
         else:
             return None
+        
+    def get_mcp_server(self, server_name):
+        """
+        Get configuration for a specific MCP server
+        
+        Args:
+            server_name (str): Name of the MCP server
+            
+        Returns:
+            dict: Server configuration or None if not found
+        """
+        return self.mcp_servers.get(server_name)
 
 # Global config instance
-config = Config() 
+config = Config()

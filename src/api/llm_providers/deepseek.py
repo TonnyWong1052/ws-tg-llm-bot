@@ -7,14 +7,14 @@ logger = logging.getLogger("deepseek_provider")
 
 class DeepseekProvider(LLMProvider):
     """
-    DeepSeek API 的提供商實現
+    Implementation of DeepSeek API provider
     """
     def __init__(self, api_key=None):
         """
-        初始化 DeepSeek 提供商
+        Initialize DeepSeek provider
         
         Args:
-            api_key (str, optional): DeepSeek API 密鑰
+            api_key (str, optional): DeepSeek API key
         """
         super().__init__(api_key)
         if not self.api_key:
@@ -22,18 +22,18 @@ class DeepseekProvider(LLMProvider):
     
     def call(self, prompt, **kwargs):
         """
-        調用 DeepSeek API 生成響應
+        Call DeepSeek API to generate response
         
         Args:
-            prompt (str): 提示
-            **kwargs: 附加參數，包括:
-                model (str): 要使用的模型 (默認: deepseek-chat)
-                max_tokens (int): 響應中的最大標記數 (默認: 1000)
-                temperature (float): 響應生成的溫度 (默認: 0.7)
-                system_prompt (str): 系統提示，定義 AI 的角色和行為
+            prompt (str): Prompt text
+            **kwargs: Additional parameters, including:
+                model (str): Model to use (default: deepseek-chat)
+                max_tokens (int): Maximum tokens in response (default: 1000)
+                temperature (float): Temperature for response generation (default: 0.7)
+                system_prompt (str): System prompt defining AI's role and behavior
                 
         Returns:
-            str: 生成的文本響應
+            str: Generated text response
         """
         model = kwargs.get('model', 'deepseek-chat')
         max_tokens = kwargs.get('max_tokens', 1000)
@@ -80,19 +80,19 @@ class DeepseekProvider(LLMProvider):
     
     def call_stream(self, prompt, **kwargs):
         """
-        使用流式支持調用 DeepSeek API 生成響應
+        Call DeepSeek API with streaming support to generate response
         
         Args:
-            prompt (str): 要發送到 API 的提示
-            **kwargs: 附加參數，包括:
-                model (str): 要使用的模型基礎名稱 (默認: deepseek-chat)
-                max_tokens (int): 響應中的最大標記數 (默認: 1000)
-                temperature (float): 響應生成的溫度 (默認: 0.7)
-                mode (str): 是使用 'chat' 還是 'reasoner' 模式 (默認: chat)
-                system_prompt (str): 系統提示，定義 AI 的角色和行為
+            prompt (str): Prompt to send to API
+            **kwargs: Additional parameters, including:
+                model (str): Base model name to use (default: deepseek-chat)
+                max_tokens (int): Maximum tokens in response (default: 1000)
+                temperature (float): Temperature for response generation (default: 0.7)
+                mode (str): Whether to use 'chat' or 'reasoner' mode (default: chat)
+                system_prompt (str): System prompt defining AI's role and behavior
                 
         Returns:
-            Generator: 生成文本響應的塊，最終完整響應在末尾
+            Generator: Yields chunks of generated text response, with complete response at the end
         """
         model = kwargs.get('model', '')
         max_tokens = kwargs.get('max_tokens', 1000)
@@ -104,7 +104,7 @@ class DeepseekProvider(LLMProvider):
             yield "DeepSeek API key not found. Please set it in the .env file."
             return
         
-        # 根據模式調整模型名稱
+        # Adjust model name based on mode
         if mode == "reasoner" or model == "deepseek-reasoner":
             # If user specifically requests the reasoner model or mode
             model = "deepseek-reasoner"
@@ -130,7 +130,7 @@ class DeepseekProvider(LLMProvider):
             })
             model = "deepseek-reasoner"
         
-        # 添加用戶消息
+        # Add user message
         messages.append({"role": "user", "content": prompt})
         
         payload = {
@@ -142,10 +142,10 @@ class DeepseekProvider(LLMProvider):
         }
         
         try:
-            # 打印請求詳細信息以進行調試
+            # Print request details for debugging
             logger.info(f"Making request to DeepSeek API with model: {model}")
             
-            # 流式處理響應
+            # Stream the response
             response = requests.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers=headers,
@@ -153,7 +153,7 @@ class DeepseekProvider(LLMProvider):
                 stream=True
             )
             
-            # 檢查錯誤
+            # Check for errors
             if response.status_code != 200:
                 error_msg = f"DeepSeek API returned error {response.status_code}"
                 try:
@@ -171,34 +171,34 @@ class DeepseekProvider(LLMProvider):
             
             for line in response.iter_lines():
                 if line:
-                    # 跳過 "data: " 前綴
+                    # Skip "data: " prefix
                     line = line.decode('utf-8')
                     if line.startswith("data: "):
-                        line = line[6:]  # 跳過 "data: "
+                        line = line[6:]  # Skip "data: "
                     
-                    # 檢查 [DONE] 消息
+                    # Check for [DONE] message
                     if line == "[DONE]":
-                        # 確保最後一次生成完整的響應
+                        # Ensure final complete response is yielded
                         if final_content:
                             yield final_content
                         break
                     
                     try:
                         json_response = json.loads(line)
-                        # 提取內容 - 可能根據實際的 DeepSeek API 響應格式而有所不同
+                        # Extract content - may vary based on actual DeepSeek API response format
                         if "choices" in json_response and json_response["choices"]:
                             delta = json_response["choices"][0].get("delta", {})
                             if "content" in delta and delta["content"]:
                                 collected_content += delta["content"]
-                                # 跟踪完整響應以便最後生成
+                                # Track complete response for final yield
                                 final_content = collected_content
                                 yield collected_content
                     except json.JSONDecodeError:
-                        # 跳過無法解碼為 JSON 的行
+                        # Skip lines that can't be decoded as JSON
                         pass
                         
-            # 確保在流完成後再次生成最終響應
-            # 這有助於防止響應不完整的錯誤
+            # Ensure final response is yielded again after stream completes
+            # This helps prevent incomplete response errors
             if final_content:
                 yield final_content
                 
