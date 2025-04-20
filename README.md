@@ -59,13 +59,9 @@ src/
 
 1. DeepSeek API
    - Documentation: https://platform.deepseek.com/usage
-   - Features: High performance, stable and reliable
-   - Limitations: Requires API key
 
 2. GitHub API
    - Setup: https://github.com/settings/personal-access-tokens
-   - Features: Integration with GitHub ecosystem
-   - Limitations: Requires personal access token
 
 3. Grok API
    - Status: Not available (Custom implementation)
