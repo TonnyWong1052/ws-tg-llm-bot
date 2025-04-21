@@ -58,3 +58,36 @@
 2025-04-21 16:09:37,816 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
 2025-04-21 16:10:39,465 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
 2025-04-21 16:10:39,603 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 16:13:59,765 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:15:35,819 - telethon.client.updates - WARNING - Cannot get difference for channel 2321047855 since the account is likely misusing the session: attempt to write a readonly database
+2025-04-21 16:15:35,820 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 16:15:35,820 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 16:15:35,821 - telethon.client.telegrambaseclient - ERROR - Unhandled exception from keepalive_handle after cancelling <class '_asyncio.Task'> (<Task finished name='Task-8' coro=<UpdateMethods._keepalive_loop() done, defined at /Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/updates.py:481> exception=OperationalError('attempt to write a readonly database')>)
+Traceback (most recent call last):
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/helpers.py", line 176, in _cancel
+    await task
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/updates.py", line 517, in _keepalive_loop
+    self._save_states_and_entities()
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/telegrambaseclient.py", line 694, in _save_states_and_entities
+    self.session.process_entities(types.contacts.ResolvedPeer(None, [e._as_input_peer() for e in entities], []))
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/sessions/sqlite.py", line 301, in process_entities
+    c.executemany(
+sqlite3.OperationalError: attempt to write a readonly database
+2025-04-21 16:15:35,827 - asyncio - ERROR - Task exception was never retrieved
+future: <Task finished name='Task-766' coro=<TelegramBaseClient._disconnect_coro() done, defined at /Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/telegrambaseclient.py:707> exception=OperationalError('attempt to write a readonly database')>
+Traceback (most recent call last):
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/telegrambaseclient.py", line 737, in _disconnect_coro
+    self._save_states_and_entities()
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/telegrambaseclient.py", line 694, in _save_states_and_entities
+    self.session.process_entities(types.contacts.ResolvedPeer(None, [e._as_input_peer() for e in entities], []))
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/sessions/sqlite.py", line 301, in process_entities
+    c.executemany(
+sqlite3.OperationalError: attempt to write a readonly database
+2025-04-21 16:15:35,827 - telethon.network.mtprotosender - INFO - Not disconnecting (already have no connection)
+2025-04-21 16:15:35,827 - telethon.client.telegrambaseclient - ERROR - Unhandled exception from keepalive_handle after cancelling <class '_asyncio.Task'> (<Task finished name='Task-8' coro=<UpdateMethods._keepalive_loop() done, defined at /Users/tomleung/.local/lib/python3.12/site-packages/telethon/client/updates.py:481> exception=OperationalError('attempt to write a readonly database')>)
+Traceback (most recent call last):
+  File "/Users/tomleung/.local/lib/python3.12/site-packages/telethon/helpers.py", line 176, in _cancel
+    await task
+sqlite3.OperationalError: attempt to write a readonly database
+2025-04-21 16:15:35,828 - main - CRITICAL - Unhandled exception: attempt to write a readonly database
+MCP config file not found at /Users/tomleung/Downloads/ws-tg-llm-bot/config/mcp_config.json

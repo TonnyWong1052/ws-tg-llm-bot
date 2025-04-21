@@ -78,17 +78,6 @@ if [ -f "session_name.session-journal" ]; then
     }
 fi
 
-# Install required packages if pip is available
-if [ -n "$PIP_CMD" ]; then
-    log_info "Installing required packages using $PIP_CMD..."
-    if ! $PIP_CMD install -r requirements.txt --user; then
-        log_error "Failed to install required packages"
-        exit 1
-    fi
-else
-    log_info "Skipping package installation since pip is not available."
-fi
-
 # Make sure the config directory exists
 mkdir -p config || {
     log_error "Failed to create config directory"
