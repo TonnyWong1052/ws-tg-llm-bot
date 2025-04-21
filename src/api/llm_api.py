@@ -292,7 +292,7 @@ class LLMClient:
         if not grok_api_key:
             return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
         
-        # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
+        # Remove HTML formatting requirements, use Telegram-friendly formatting
         enhanced_system_prompt = system_prompt
         if system_prompt and not "Format your response" in system_prompt:
             enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
@@ -354,7 +354,7 @@ class LLMClient:
         if not grok_api_key:
             return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
         
-        # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
+        # Remove HTML formatting requirements, use Telegram-friendly formatting
         enhanced_system_prompt = system_prompt
         if system_prompt and not "Format your response" in system_prompt:
             enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
@@ -409,7 +409,7 @@ class LLMClient:
             if not grok_api_key:
                 return "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
             
-            # 移除 HTML 格式要求，改為使用 Telegram 友好的格式
+            # Remove HTML formatting requirements, use Telegram-friendly formatting
             enhanced_system_prompt = system_prompt
             if system_prompt and not "Format your response" in system_prompt:
                 enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
@@ -489,7 +489,7 @@ class LLMClient:
             yield "Grok API key not found. Please set GROK_API_KEY in the .env file or credentials file."
             return
         
-        # 移除 HTML 格式要求，改為使用純文本格式
+        # Remove HTML formatting requirements, use plain text formatting
         enhanced_system_prompt = system_prompt
         if system_prompt and not "Format your response" in system_prompt:
             enhanced_system_prompt = system_prompt + " Format your response clearly with proper spacing, line breaks, and structure. Use markdown-style formatting like *bold*, _italic_, and `code` for emphasis. Use numbered lists (1., 2., 3.) and bullet points (- or *) for lists. Ensure your response is well-structured and easy to read."
@@ -507,11 +507,11 @@ class LLMClient:
         # Add user message
         messages.append({
             "role": "user", 
-                "content": user_prompt
+            "content": user_prompt
         })
         
         # Maximum number of retries
-        max_retries = 5  # 增加最大重試次數
+        max_retries = 5  # Increased maximum retry count
         retry_count = 0
         retry_delay = 2  # seconds
         
@@ -521,8 +521,8 @@ class LLMClient:
                 print(f"Making request to chatapi.littlewheat.com with model: {model_name} (attempt {retry_count + 1}/{max_retries})")
                 print(f"Messages: {messages}")
 
-                # 使用更長的超時時間
-                socket.setdefaulttimeout(120)  # 設置全局套接字超時為120秒
+                # Use longer timeout
+                socket.setdefaulttimeout(120)  # Set global socket timeout to 120 seconds
                 # Setup connection to the specific API endpoint with longer timeout
                 conn = http.client.HTTPSConnection("chatapi.littlewheat.com", timeout=120)
                 
@@ -567,11 +567,11 @@ class LLMClient:
                 collected_content = ""
                 buffer = ""
                 last_activity_time = time.time()
-                activity_timeout = 60  # 60秒無活動超時
+                activity_timeout = 60  # 60 seconds inactivity timeout
                 
                 # Read larger chunks instead of byte-by-byte to avoid UTF-8 decoding issues
                 while True:
-                    # 檢查無活動超時
+                    # Check inactivity timeout
                     if time.time() - last_activity_time > activity_timeout:
                         print(f"No activity from Grok API for {activity_timeout} seconds, closing connection")
                         break
@@ -581,7 +581,7 @@ class LLMClient:
                         if not chunk:
                             break
                         
-                        # 更新上次活動時間
+                        # Update last activity time
                         last_activity_time = time.time()
                         
                         # Decode with error handling
@@ -622,13 +622,13 @@ class LLMClient:
                                     print(f"Warning: JSON decode error: {je}. Input: {line[:100]}...")
                                     continue
                     except socket.timeout:
-                        # 處理超時
+                        # Handle timeout
                         print(f"Socket timeout while reading response, retrying... (attempt {retry_count+1}/{max_retries})")
                         retry_count += 1
                         if retry_count < max_retries:
                             time.sleep(retry_delay)
                             retry_delay *= 2  # Exponential backoff
-                            break  # 跳出內層循環，重新連接
+                            break  # Break inner loop to reconnect
                         else:
                             yield "Error: Read operation timed out after multiple attempts. Please try again later."
                             return

@@ -1,0 +1,107 @@
+2025-04-21 15:34:27,024 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:34:27,024 - __main__ - INFO - Creating Telegram session for +85254297749
+2025-04-21 15:34:27,032 - __main__ - INFO - Starting client and requesting login code...
+2025-04-21 15:34:27,032 - telethon.network.mtprotosender - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-04-21 15:34:29,146 - telethon.network.mtprotosender - INFO - Connection to 149.154.167.51:443/TcpFull complete!
+2025-04-21 15:34:29,923 - __main__ - INFO - Not authorized. Sending code request to +85254297749...
+2025-04-21 15:34:30,125 - telethon.client.users - INFO - Phone migrated to 5
+2025-04-21 15:34:30,126 - telethon.client.telegrambaseclient - INFO - Reconnecting to new data center 5
+2025-04-21 15:34:30,321 - telethon.network.mtprotosender - INFO - Disconnecting from 149.154.167.51:443/TcpFull...
+2025-04-21 15:34:30,322 - telethon.network.mtprotosender - INFO - Disconnection from 149.154.167.51:443/TcpFull complete!
+2025-04-21 15:34:30,322 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:34:31,641 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:34:38,686 - __main__ - INFO - Successfully signed in!
+2025-04-21 15:34:38,687 - __main__ - INFO - Session saved to /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:34:38,687 - __main__ - INFO - 
+You can now deploy this session file to your server.
+2025-04-21 15:34:38,687 - __main__ - INFO - The bot should start without asking for a code.
+2025-04-21 15:34:38,687 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:34:38,687 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:34:39,123 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:34:39,124 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:34:39,124 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:34:39,138 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:34:39,371 - __main__ - INFO - Session verification successful
+2025-04-21 15:34:39,371 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:34:39,372 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:34:39,373 - __main__ - INFO - Session verification: OK
+2025-04-21 15:35:10,617 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:35:10,618 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:35:10,618 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:35:10,629 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:35:10,897 - __main__ - INFO - Session verification successful
+2025-04-21 15:35:10,897 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:35:10,898 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:35:10,900 - __main__ - INFO - Session verification: OK
+2025-04-21 15:44:36,009 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:44:36,012 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:44:36,012 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:44:36,025 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:44:36,278 - __main__ - INFO - Session verification successful
+2025-04-21 15:44:36,278 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:44:36,279 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:44:36,281 - __main__ - INFO - Session verification: OK
+2025-04-21 15:47:02,602 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:47:02,602 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:47:02,603 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:02,618 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:02,869 - __main__ - INFO - Session verification successful
+2025-04-21 15:47:02,869 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:02,870 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:02,872 - __main__ - INFO - Session verification: OK
+2025-04-21 15:47:12,218 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:47:12,219 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:47:12,221 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:12,231 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:12,514 - __main__ - INFO - Session verification successful
+2025-04-21 15:47:12,514 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:12,515 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:12,516 - __main__ - INFO - Session verification: OK
+2025-04-21 15:47:43,556 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:47:43,557 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:47:43,558 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:43,571 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:43,873 - __main__ - INFO - Session verification successful
+2025-04-21 15:47:43,874 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:47:43,874 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:47:43,877 - __main__ - INFO - Session verification: OK
+2025-04-21 15:48:31,141 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:48:31,142 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:48:31,142 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:48:31,158 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:48:31,438 - __main__ - INFO - Session verification successful
+2025-04-21 15:48:31,439 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:48:31,439 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:48:31,441 - __main__ - INFO - Session verification: OK
+2025-04-21 15:54:04,535 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:54:04,536 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:54:04,537 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:54:04,543 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:54:04,842 - __main__ - INFO - Session verification successful
+2025-04-21 15:54:04,842 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:54:04,843 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:54:04,846 - __main__ - INFO - Session verification: OK
+2025-04-21 15:55:03,532 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:55:03,533 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:55:03,533 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:55:03,539 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:55:03,896 - __main__ - INFO - Session verification successful
+2025-04-21 15:55:03,897 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:55:03,898 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:55:03,900 - __main__ - INFO - Session verification: OK
+2025-04-21 15:56:25,408 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:56:25,408 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:56:25,409 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:56:25,416 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:56:25,662 - __main__ - INFO - Session verification successful
+2025-04-21 15:56:25,663 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:56:25,663 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:56:25,667 - __main__ - INFO - Session verification: OK
+2025-04-21 15:57:02,721 - __main__ - INFO - Loaded environment variables from /Users/tomleung/Downloads/ws-tg-llm-bot/config/.env
+2025-04-21 15:57:02,721 - __main__ - INFO - Session file exists at /Users/tomleung/Downloads/ws-tg-llm-bot/session_name.session
+2025-04-21 15:57:02,722 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:57:02,732 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:57:02,999 - __main__ - INFO - Session verification successful
+2025-04-21 15:57:02,999 - telethon.network.mtprotosender - INFO - Disconnecting from 91.108.56.119:443/TcpFull...
+2025-04-21 15:57:03,000 - telethon.network.mtprotosender - INFO - Disconnection from 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:57:03,001 - __main__ - INFO - Session verification: OK

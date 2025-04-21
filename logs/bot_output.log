@@ -1,0 +1,60 @@
+2025-04-21 15:57:04,067 - llm_client - INFO - Loaded providers from api.providers package
+2025-04-21 15:57:04,074 - telethon.crypto.aes - INFO - libssl detected, it will be used for encryption
+/Users/tomleung/Downloads/ws-tg-llm-bot/src/platforms/telegram/commands/basic_commands.py:217: SyntaxWarning: invalid escape sequence '\_'
+  """
+/Users/tomleung/Downloads/ws-tg-llm-bot/src/platforms/telegram/commands/basic_commands.py:231: SyntaxWarning: invalid escape sequence '\_'
+  """
+/Users/tomleung/Downloads/ws-tg-llm-bot/src/platforms/telegram/commands/basic_commands.py:240: SyntaxWarning: invalid escape sequence '\|'
+  """
+/Users/tomleung/Downloads/ws-tg-llm-bot/src/platforms/telegram/commands/basic_commands.py:258: SyntaxWarning: invalid escape sequence '\_'
+  """
+2025-04-21 15:57:04,489 - llm_client - INFO - Registered LLM provider: grok
+2025-04-21 15:57:04,489 - llm_client - INFO - Grok provider registered
+2025-04-21 15:57:04,513 - llm_client - INFO - Registered LLM provider: deepseek
+2025-04-21 15:57:04,513 - llm_client - INFO - DeepSeek provider registered
+2025-04-21 15:57:04,513 - llm_client - INFO - Registered LLM provider: openai
+2025-04-21 15:57:04,513 - llm_client - INFO - OpenAI provider registered (using GitHub API)
+2025-04-21 15:57:04,513 - llm_client - INFO - Registered LLM provider: deepseek
+2025-04-21 15:57:04,513 - llm_client - INFO - Registered LLM provider: github
+2025-04-21 15:57:04,513 - llm_client - INFO - Registered LLM provider: grok
+2025-04-21 15:57:04,515 - llm_client - INFO - Registered LLM provider: grok
+2025-04-21 15:57:04,515 - llm_client - INFO - Grok provider registered
+2025-04-21 15:57:04,537 - llm_client - INFO - Registered LLM provider: deepseek
+2025-04-21 15:57:04,537 - llm_client - INFO - DeepSeek provider registered
+2025-04-21 15:57:04,537 - llm_client - INFO - Registered LLM provider: openai
+2025-04-21 15:57:04,537 - llm_client - INFO - OpenAI provider registered (using GitHub API)
+2025-04-21 15:57:04,537 - telegram_bot - INFO - LLM client initialized successfully
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Registered providers: ['grok', 'deepseek', 'openai']
+2025-04-21 15:57:04,537 - telegram_basic_commands - INFO - Basic command handlers registered
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Basic command handlers registered
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Initializing LLM command handlers
+2025-04-21 15:57:04,537 - telegram_llm_commands - INFO - LLM command handlers registered
+2025-04-21 15:57:04,537 - telegram_bot - INFO - LLM command handlers registered
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Telegram bot initialized
+2025-04-21 15:57:04,537 - main - INFO - Initialized telegram bot
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Telegram bot is starting
+2025-04-21 15:57:04,537 - telegram_bot - INFO - Running in non-interactive mode, using session-only authentication
+2025-04-21 15:57:04,537 - telethon.network.mtprotosender - INFO - Connecting to 91.108.56.119:443/TcpFull...
+2025-04-21 15:57:04,551 - telethon.network.mtprotosender - INFO - Connection to 91.108.56.119:443/TcpFull complete!
+2025-04-21 15:57:04,887 - telegram_bot - INFO - Telegram bot is running...
+2025-04-21 15:57:04,888 - main - INFO - Started telegram bot
+2025-04-21 15:57:04,888 - main - INFO - Running 1 bot(s). Press Ctrl+C to stop.
+2025-04-21 15:57:07,275 - telethon.client.updates - INFO - Got difference for channel 2578807728 updates
+2025-04-21 15:57:16,470 - telethon.client.updates - INFO - Got difference for account updates
+2025-04-21 15:57:16,542 - telethon.client.updates - INFO - Got difference for channel 2578807728 updates
+2025-04-21 15:57:27,556 - telethon.client.updates - INFO - Got difference for account updates
+2025-04-21 15:57:28,156 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 15:58:01,770 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 15:58:41,741 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 16:00:46,604 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:01:41,895 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 16:01:48,916 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 16:01:48,984 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:03:05,509 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:04:52,743 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:06:42,628 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:06:46,050 - telethon.client.updates - INFO - Got difference for account updates
+2025-04-21 16:09:05,599 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:09:37,816 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates
+2025-04-21 16:10:39,465 - telethon.client.updates - INFO - Got difference for channel 2321047855 updates
+2025-04-21 16:10:39,603 - telethon.client.updates - INFO - Got difference for channel 2118057217 updates

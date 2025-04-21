@@ -88,48 +88,99 @@ class BasicCommandHandler(CommandHandler):
         latency = round((end_time - start_time) * 1000, 2)
         
         # Get service information
-        service = "Azure"
+        service = "Unknown"
         location = "Unknown"
         
-        # Try to get Azure region from environment
+        # Try to detect service provider and location
         try:
-            # First try to get from environment variables
-            if 'AZURE_REGION' in os.environ:
-                location = os.environ['AZURE_REGION']
-            elif 'AZURE_LOCATION' in os.environ:
-                location = os.environ['AZURE_LOCATION']
-            
-            # If still unknown, try to get from Azure metadata service
-            if location == "Unknown":
+            # Check for AWS
+            try:
                 import requests
+                response = requests.get(
+                    'http://169.254.169.254/latest/meta-data/placement/region',
+                    headers={'Metadata': 'true'},
+                    timeout=2
+                )
+                if response.status_code == 200:
+                    service = "AWS"
+                    location = response.text.strip()
+            except:
+                pass
+            
+            # Check for Azure
+            if service == "Unknown":
                 try:
-                    # Azure Instance Metadata Service
                     response = requests.get(
                         'http://169.254.169.254/metadata/instance?api-version=2021-02-01',
                         headers={'Metadata': 'true'},
                         timeout=2
                     )
                     if response.status_code == 200:
+                        service = "Azure"
                         metadata = response.json()
                         location = metadata.get('compute', {}).get('location', 'Unknown')
                 except:
                     pass
             
-            # If still unknown, try to get from system information
-            if location == "Unknown":
+            # Check for GCP
+            if service == "Unknown":
                 try:
-                    import platform
-                    if platform.system() == 'Linux':
-                        with open('/etc/os-release', 'r') as f:
-                            for line in f:
-                                if line.startswith('PRETTY_NAME='):
-                                    location = line.split('=')[1].strip().strip('"')
-                                    break
+                    response = requests.get(
+                        'http://metadata.google.internal/computeMetadata/v1/instance/zone',
+                        headers={'Metadata-Flavor': 'Google'},
+                        timeout=2
+                    )
+                    if response.status_code == 200:
+                        service = "GCP"
+                        location = response.text.strip().split('/')[-1]
                 except:
                     pass
+            
+            # If still unknown, try to get location from IP
+            if service == "Unknown":
+                try:
+                    # Try multiple IP geolocation services
+                    ip_services = [
+                        'https://ipapi.co/json/',
+                        'https://ipinfo.io/json',
+                        'https://api.ipdata.co/?api-key=test'
+                    ]
+                    
+                    for service_url in ip_services:
+                        try:
+                            response = requests.get(service_url, timeout=2)
+                            if response.status_code == 200:
+                                data = response.json()
+                                service = "Local"
+                                # Different services have different response formats
+                                if 'country_name' in data:
+                                    location = data['country_name']
+                                elif 'country' in data:
+                                    location = data['country']
+                                elif 'location' in data:
+                                    location = data['location']
+                                break
+                        except:
+                            continue
+                            
+                    # If all IP services fail, try to get from environment variables
+                    if location == "Unknown":
+                        if 'COUNTRY' in os.environ:
+                            location = os.environ['COUNTRY']
+                        elif 'REGION' in os.environ:
+                            location = os.environ['REGION']
+                        elif 'LOCATION' in os.environ:
+                            location = os.environ['LOCATION']
+                            
+                except Exception as e:
+                    logger.error(f"Error getting location from IP: {e}")
+                    service = "Local"
+                    location = "Unknown"
+                    
         except Exception as e:
-            logger.error(f"Error getting location: {e}")
-            pass
+            logger.error(f"Error getting service info: {e}")
+            service = "Unknown"
+            location = "Unknown"
         
         # Format the response
         response = f"{latency}ms\nService: {service}\nLocation: {location}"
@@ -158,66 +209,63 @@ class BasicCommandHandler(CommandHandler):
         try:
             # Dog ASCII arts
             dog_arts = [
-                """
-                /\  /\
-            =( ´ •⁠ω• ⁠)=
-            / ͡      ︵\
-            (⁠人_____づ_づ
-        """,
-                """
-                .·´¯`·.  ·´¯·.
-        |
-        |   |__     ╲  ╲ ╲
-        |ロ |       ╲╲     /\~/\
-        |ロ |        ╲ ╲  ( •ω • )
-        |ロ |         ╲   ⊂     づ
-        |ロ |          ╲ ╲     ⊃⊃╲
-        |ロ |___        ╲| _ ╲|__
-        """,
-                """
-        ╱|、
-        (˚ˎ 。7  
-        |、˜〵          
-        じしˍ,)ノ
-        """,
-                """
-         |\_/|                  
-         | @ @   Woof! 
-         |   <>              _  
-         |  _/\------____ ((| |))
-         |               `--' |   
-        ____|_       ___|   |___.' 
-        /_/_____/____/_______|
-        """,
-                """
-         |\|\
-        ..    \       .
-        o--     \\    / @)
-        v__///\\\\__/ @
-        {           }
-        {  } \\\{  }
-        <_|      <_|
-        """,
-                """
-        ⠀⠀⠀⠀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⢠⣤⡀⣾⣿⣿⠀⣤⣤⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⢿⣿⡇⠘⠛⠁⢸⣿⣿⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⠈⣉⣤⣾⣿⣿⡆⠉⣴⣶⣶⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⣾⣿⣿⣿⣿⣿⣿⡀⠻⠟⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⠙⠛⠻⢿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-        ⠀⠀⠀⠀⠈⠙⠋⠁⠀⠀
-        """,
-                """
-        (\_/)
-        ( •,•)
-        (")_(")
-        """,
-                """
-        _██_
-        ‹(•¿•)›
-        ..(█)
-        .../ I
+"""
+/)  /)  ~ ┏━━━━━━━━━━━━━━━━━┓
+( •-• )  ~    Hi there!    
+/づづ   ~ ┗━━━━━━━━━━━━━━━━━┛
+""",
+"""
+/\_/\            /\_/\\n
+=(  o.o)=     =(0.0⸝⸝ )=
+ʕ(   ა૮)       (ა૮   )ʔ
+""",
+"""
+ʕ•̫͡•ʕ•̫͡•ʔ•̫͡•ʔ•̫͡•ʕ•̫͡•ʔ•̫͡•ʕ•̫͡•ʕ•̫͡•ʔ•̫͡•ʔ•̫͡•
+""",
         """
+╱|、
+(˚ˎ 。7  
+|、˜〵          
+じしˍ,)ノ
+""",
+        """
+    |\_/|                  
+    | @ @   Woof! 
+    |   <>              _  
+    |  _/\------____ ((| |))
+    |               `--' |   
+____|_       ___|   |___.' 
+/_/_____/____/_______|
+""",
+        """
+    |\|\
+..    \       .
+o--     \\    / @)
+v__///\\\\__/ @
+{           }
+{  } \\\{  }
+<_|      <_|
+""",
+"""
+⠀⠀⠀⠀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢠⣤⡀⣾⣿⣿⠀⣤⣤⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢿⣿⡇⠘⠛⠁⢸⣿⣿⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠈⣉⣤⣾⣿⣿⡆⠉⣴⣶⣶⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⣾⣿⣿⣿⣿⣿⣿⡀⠻⠟⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠙⠛⠻⢿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠙⠋⠁⠀⠀
+""",
+"""
+(\_/)
+( •,•)
+(")_(")
+""",
+"""
+_██_
+‹(•¿•)›
+..(█)
+.../ I
+"""
             ]
             
             # Choose a random dog art
@@ -274,7 +322,7 @@ class BasicCommandHandler(CommandHandler):
         """Process env command asynchronously"""
         try:
             # Get environment information
-            environment = os.getenv('ENVIRONMENT', 'Not set')
+            environment = os.getenv('ENVIRONMENT', 'prod')
             
             # Format response
             response = f"Environment: {environment.upper()}\n\n"

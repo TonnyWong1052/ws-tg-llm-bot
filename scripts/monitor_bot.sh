@@ -1,94 +1,48 @@
 #!/bin/bash
 
-# Monitor script for Telegram bot on Azure VM
-# This script monitors the bot service and restarts it if needed
+cd "./.." || exit
+LOG_DIR="logs"
+mkdir -p "$LOG_DIR"
 
-# Get the directory where the script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PYTHON_CMD="python3"
 
-# Load environment variables
-if [ -f "$PROJECT_ROOT/config/.env" ]; then
-    export $(cat "$PROJECT_ROOT/config/.env" | grep -v '^#' | xargs)
-else
-    echo "Error: $PROJECT_ROOT/config/.env file not found"
-    exit 1
-fi
+echo "[$(date)] Monitor script started using $PYTHON_CMD" >> "$LOG_DIR/monitor.log"
 
-# Create log directory if it doesn't exist
-sudo mkdir -p $LOG_DIR
-sudo chown azureuser:azureuser $LOG_DIR
-
-# Function to log messages
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" | tee -a $LOG_DIR/monitor.log
+# Function to check if the session file is locked
+check_session_lock() {
+  if [ -f "session_name.session-journal" ]; then
+    echo "[$(date)] Found locked session file, removing it..." >> "$LOG_DIR/monitor.log"
+    rm session_name.session-journal
+    return 0
+  fi
+  return 1
 }
 
-# Function to execute remote command
-execute_remote_command() {
-    local command="$1"
-    az vm run-command invoke \
-        --resource-group $AZURE_RESOURCE_GROUP \
-        --name $AZURE_VM_NAME \
-        --subscription $AZURE_SUBSCRIPTION_ID \
-        --command-id RunShellScript \
-        --scripts "$command"
-}
-
-# Function to check service status
-check_service() {
-    execute_remote_command "systemctl is-active $SERVICE_NAME" | grep -q "active"
-}
-
-# Function to restart service
-restart_service() {
-    log_message "Restarting $SERVICE_NAME service..."
-    execute_remote_command "sudo systemctl restart $SERVICE_NAME"
-}
-
-# Function to collect debug info
-collect_debug_info() {
-    log_message "Collecting debug information..."
-    execute_remote_command "
-        echo '=== System Information ===' > $LOG_DIR/debug.log
-        uname -a >> $LOG_DIR/debug.log
-        echo '\n=== Disk Space ===' >> $LOG_DIR/debug.log
-        df -h >> $LOG_DIR/debug.log
-        echo '\n=== Memory Usage ===' >> $LOG_DIR/debug.log
-        free -m >> $LOG_DIR/debug.log
-        echo '\n=== Service Status ===' >> $LOG_DIR/debug.log
-        systemctl status $SERVICE_NAME >> $LOG_DIR/debug.log
-        echo '\n=== Recent Logs ===' >> $LOG_DIR/debug.log
-        journalctl -u $SERVICE_NAME -n 50 >> $LOG_DIR/debug.log
-    "
-}
-
-# Main monitoring loop
 while true; do
-    if ! check_service; then
-        log_message "Service $SERVICE_NAME is not running. Attempting to restart..."
-        collect_debug_info
-        restart_service
-        
-        # Wait and check if restart was successful
-        sleep 10
-        if ! check_service; then
-            log_message "Failed to restart $SERVICE_NAME. Please check the logs."
-        else
-            log_message "Successfully restarted $SERVICE_NAME."
-        fi
-    else
-        log_message "Service $SERVICE_NAME is running normally."
-    fi
+  if ! pgrep -f "python.*main.py" > /dev/null; then
+    echo "[$(date)] Bot process not found, restarting..." >> "$LOG_DIR/monitor.log"
+    # Check for session locks before starting
+    check_session_lock
     
-    # Wait before next check
-    sleep 60
+    # Start the bot with explicit path to python
+    nohup $PYTHON_CMD $(pwd)/src/main.py > "$LOG_DIR/bot_output.log" 2>&1 &
+    BOT_PID=$!
+    echo "[$(date)] Bot restarted with PID $BOT_PID" >> "$LOG_DIR/monitor.log"
+    
+    # Check if the bot started successfully
+    sleep 5
+    if ! ps -p $BOT_PID > /dev/null; then
+      echo "[$(date)] Bot failed to start! Check bot_output.log for errors" >> "$LOG_DIR/monitor.log"
+      echo "[$(date)] Last 20 lines of bot_output.log:" >> "$LOG_DIR/monitor.log"
+      tail -n 20 "$LOG_DIR/bot_output.log" >> "$LOG_DIR/monitor.log" 2>&1
+      
+      # Check for authentication error
+      if grep -q "not authorized" "$LOG_DIR/bot_output.log" || grep -q "EOF when reading a line" "$LOG_DIR/bot_output.log"; then
+        echo "[$(date)] Authentication error detected. Please create a valid session file using scripts/setup_session.py" >> "$LOG_DIR/monitor.log"
+      fi
+    fi
+  else
+    echo "[$(date)] Bot is running" >> "$LOG_DIR/monitor.log"
+  fi
+  sleep 60  # Check every minute instead of every 5 minutes for quicker response
 done
-
-if [ ! -d \"$AZURE_DEPLOY_DIR\" ]; then
-    sudo mkdir -p \"$AZURE_DEPLOY_DIR\"
-    sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER \"$AZURE_DEPLOY_DIR\"
-    sudo chmod -R 755 \"$AZURE_DEPLOY_DIR\"
-fi
-
-scp -i "$SSH_KEY_PATH" -r "$PROJECT_ROOT"/* "$AZURE_VM_USER@$AZURE_VM_IP:$AZURE_DEPLOY_DIR/"
