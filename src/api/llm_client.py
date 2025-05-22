@@ -124,7 +124,7 @@ class LLMClient:
         
         logger.info(f"Calling {provider} with prompt: {prompt}")
         response = self.providers[provider].call(prompt, **kwargs)
-        logger.info(f"Response from {provider}: {response[:100]}...")  # Log first 100 chars
+        self.logger.info(f"Response from {provider}: {response[:100]}...")  # Log first 100 chars
         return response
     
     def call_llm_stream(self, provider, prompt, **kwargs):
@@ -148,12 +148,8 @@ class LLMClient:
         # Check if the provider is registered
         if provider not in self.providers:
             # Special handling for 'github' provider - redirect to 'openai' provider
-            if provider == 'github' and 'openai' in self.providers:
-                logger.info(f"Redirecting 'github' provider call to 'openai' provider")
-                provider = 'openai'
-            else:
-                yield f"Unknown provider: {provider}"
-                return
+            yield f"Unknown provider: {provider}"
+            return
         
         # Handle system_prompt if provided
         system_prompt = kwargs.get('system_prompt', '')

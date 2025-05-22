@@ -37,12 +37,12 @@ stop_process() {
     local force_stop=$3
     
     if check_process "$pattern"; then
-        log_info "Found running $process_name process. Stopping it..."
+        log_info "Found running $process_name process. Stopping it with elevated privileges..."
         
         if [ "$force_stop" = true ]; then
-            pkill -9 -f "$pattern"
+            sudo pkill -9 -f "$pattern"
         else
-            pkill -f "$pattern"
+            sudo pkill -f "$pattern"
         fi
         
         # Wait for process to stop
@@ -93,4 +93,4 @@ if check_process "python.*main.py" || check_process "monitor_bot.sh"; then
 fi
 
 log_info "All processes have been stopped successfully"
-exit 0 
+exit 0

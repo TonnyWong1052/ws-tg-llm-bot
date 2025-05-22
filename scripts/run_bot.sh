@@ -3,20 +3,33 @@
 cd "$(dirname "$0")/.." || exit
 PROJECT_ROOT=$(pwd)
 
-# Create logs directory if it doesn't exist
-mkdir -p logs
+# Determine if we're running locally or on Azure
+if [[ "$(hostname)" == *"azure"* ]]; then
+    # Running on Azure VM
+    LOG_DIR="/home/azureuser/logs"
+    # Create logs directory if it doesn't exist
+    sudo mkdir -p "$LOG_DIR"
+    sudo chown -R $(whoami):$(whoami) "$LOG_DIR"
+    sudo chmod -R 777 "$LOG_DIR"
+else
+    # Running locally
+    LOG_DIR="$(pwd)/logs"
+    # Create logs directory if it doesn't exist
+    mkdir -p "$LOG_DIR"
+    chmod -R 777 "$LOG_DIR"
+fi
 
 # Function to log errors
 log_error() {
     local message=$1
-    echo "$(date): ERROR - $message" >> logs/error.log
+    echo "$(date): ERROR - $message" >> "$LOG_DIR/error.log"
     echo "❌ $message"
 }
 
 # Function to log info
 log_info() {
     local message=$1
-    echo "$(date): INFO - $message" >> logs/bot_run.log
+    echo "$(date): INFO - $message" >> "$LOG_DIR/bot_run.log"
     echo "ℹ️ $message"
 }
 
@@ -46,18 +59,6 @@ fi
 # Check Python version to ensure it's 3.x
 PYTHON_VERSION=$($PYTHON_CMD --version 2>&1)
 log_info "Python version: $PYTHON_VERSION"
-
-# Determine which pip command to use
-if command -v pip3 &> /dev/null; then
-    PIP_CMD="pip3"
-    log_info "Found pip3 command"
-elif command -v pip &> /dev/null; then
-    PIP_CMD="pip"
-    log_info "Found pip command"
-else
-    log_error "pip not found. Will skip package installation."
-    PIP_CMD=""
-fi
 
 # Check for any running bot processes and terminate them
 if check_process "python.*main.py"; then
@@ -118,8 +119,9 @@ cat > ${PROJECT_ROOT}/scripts/monitor_bot.sh << EOF
 #!/bin/bash
 
 cd "$(dirname "\$0")/.." || exit
-LOG_DIR="logs"
+LOG_DIR="$LOG_DIR"
 mkdir -p "\$LOG_DIR"
+chmod -R 777 "\$LOG_DIR"
 
 PYTHON_CMD="$PYTHON_CMD"
 
@@ -180,19 +182,19 @@ fi
 
 # Start the bot using nohup
 log_info "Starting Telegram bot with nohup using $PYTHON_CMD..."
-echo "Full command: nohup $PYTHON_CMD $(pwd)/src/main.py > logs/bot_output.log 2>&1"
-nohup $PYTHON_CMD $(pwd)/src/main.py > logs/bot_output.log 2>&1 &
+echo "Full command: nohup $PYTHON_CMD $(pwd)/src/main.py > $LOG_DIR/bot_output.log 2>&1"
+nohup $PYTHON_CMD $(pwd)/src/main.py > "$LOG_DIR/bot_output.log" 2>&1 &
 BOT_PID=$!
 
 # Verify the bot started properly
 sleep 5
 if ! ps -p $BOT_PID > /dev/null; then
-    log_error "Bot failed to start! Please check logs/bot_output.log for details"
+    log_error "Bot failed to start! Please check $LOG_DIR/bot_output.log for details"
     echo "Last 20 lines of bot_output.log:"
-    tail -n 20 logs/bot_output.log
+    tail -n 20 "$LOG_DIR/bot_output.log"
     
     # Check for authentication error specifically
-    if grep -q "not authorized" logs/bot_output.log || grep -q "EOF when reading a line" logs/bot_output.log; then
+    if grep -q "not authorized" "$LOG_DIR/bot_output.log" || grep -q "EOF when reading a line" "$LOG_DIR/bot_output.log"; then
         log_error "AUTHENTICATION ERROR DETECTED: The bot needs to authenticate with Telegram."
         echo "Please run 'python scripts/setup_session.py' on your local machine first,"
         echo "then upload the session_name.session file to your server."
@@ -203,7 +205,7 @@ fi
 
 # Start the monitor script in background
 log_info "Starting monitor script..."
-nohup bash scripts/monitor_bot.sh > logs/monitor_output.log 2>&1 &
+nohup bash scripts/monitor_bot.sh > "$LOG_DIR/monitor_output.log" 2>&1 &
 MONITOR_PID=$!
 
 # Create a status checker script
@@ -211,6 +213,7 @@ cat > ${PROJECT_ROOT}/scripts/check_status.sh << 'EOF'
 #!/bin/bash
 
 cd "$(dirname "$0")/.." || exit
+LOG_DIR="$LOG_DIR"
 
 echo "=== Telegram Bot Status ==="
 if pgrep -f "python.*main.py" > /dev/null; then
@@ -227,11 +230,11 @@ fi
 
 echo ""
 echo "=== Latest Bot Logs ==="
-tail -n 20 logs/bot_output.log 2>/dev/null || echo "No logs found"
+tail -n 20 "$LOG_DIR/bot_output.log" 2>/dev/null || echo "No logs found"
 
 echo ""
 echo "=== Latest Monitor Logs ==="
-tail -n 10 logs/monitor.log 2>/dev/null || echo "No logs found"
+tail -n 10 "$LOG_DIR/monitor.log" 2>/dev/null || echo "No logs found"
 
 echo ""
 echo "=== Session Status ==="
@@ -262,10 +265,22 @@ else
     log_error "❌ Failed to start monitor"
 fi
 
-log_info ""
-log_info "To check status: bash scripts/check_status.sh"
-log_info "To view bot logs: cat logs/bot_output.log"
-log_info "To view monitor logs: cat logs/monitor.log"
-log_info "To stop the bot: pkill -f \"python.*main.py\""
-log_info "To stop everything: pkill -f \"python.*main.py\"; pkill -f \"monitor_bot.sh\""
-log_info "========================================================="
+echo ""
+echo "========================================================="
+echo "Welcome to the Telegram Bot!"
+echo ""
+echo "To check the status of the bot and monitor without the shell script we provided:"
+echo "Status Commands:"
+echo "  bash scripts/check_status.sh"
+echo ""
+echo "Log Files:"
+echo "  $LOG_DIR/bot_output.log"
+echo "  $LOG_DIR/monitor_output.log"
+echo "  $LOG_DIR/monitor.log"
+echo "  $LOG_DIR/error.log"
+echo "  $LOG_DIR/bot_run.log"
+echo ""
+echo "Stop Commands:"
+echo "  pkill -f 'python.*main.py'"
+echo "  pkill -f 'monitor_bot.sh'"
+echo "========================================================="

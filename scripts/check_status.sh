@@ -1,6 +1,7 @@
 #!/bin/bash
 
 cd "$(dirname "$0")/.." || exit
+LOG_DIR="$LOG_DIR"
 
 echo "=== Telegram Bot Status ==="
 if pgrep -f "python.*main.py" > /dev/null; then
@@ -17,11 +18,11 @@ fi
 
 echo ""
 echo "=== Latest Bot Logs ==="
-tail -n 20 logs/bot_output.log 2>/dev/null || echo "No logs found"
+tail -n 20 "$LOG_DIR/bot_output.log" 2>/dev/null || echo "No logs found"
 
 echo ""
 echo "=== Latest Monitor Logs ==="
-tail -n 10 logs/monitor.log 2>/dev/null || echo "No logs found"
+tail -n 10 "$LOG_DIR/monitor.log" 2>/dev/null || echo "No logs found"
 
 echo ""
 echo "=== Session Status ==="

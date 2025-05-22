@@ -153,15 +153,16 @@ transfer_files() {
     # Set correct permissions for SSH key
     chmod 600 "$SSH_KEY_PATH"
     
-    # Create target directory on VM if it doesn't exist
+    # 先在 VM 上建立所有必要目錄
     ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        if [ ! -d \"$AZURE_DEPLOY_DIR\" ]; then
-            sudo mkdir -p \"$AZURE_DEPLOY_DIR\"
-            sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER \"$AZURE_DEPLOY_DIR\"
-            sudo chmod -R 755 \"$AZURE_DEPLOY_DIR\"
-        fi
+        sudo mkdir -p \"$AZURE_DEPLOY_DIR/scripts\"
+        sudo mkdir -p \"$AZURE_DEPLOY_DIR/src\"
+        sudo mkdir -p \"$AZURE_DEPLOY_DIR/config\"
+        sudo mkdir -p \"$AZURE_DEPLOY_DIR/logs\"
+        sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER \"$AZURE_DEPLOY_DIR\"
+        sudo chmod -R 775 \"$AZURE_DEPLOY_DIR\"
     " || {
-        echo "Failed to create target directory on VM"
+        echo "Failed to create target directories on VM"
         return 1
     }
     
@@ -174,16 +175,19 @@ transfer_files() {
     
     # Set correct permissions on VM
     ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # Set permissions
         sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER \"$AZURE_DEPLOY_DIR\"
-        sudo chmod -R 755 \"$AZURE_DEPLOY_DIR\"
-        
-        # Verify files were transferred
+        sudo chmod -R 775 \"$AZURE_DEPLOY_DIR\"
+        sudo mkdir -p \"/home/azureuser/logs\"
+        sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER \"/home/azureuser/logs\"
+        sudo chmod -R 777 \"/home/azureuser/logs\"
+        sudo find \"$AZURE_DEPLOY_DIR/scripts\" -type f -name \"*.sh\" -exec chmod +x {} \;
+        if [ -f \"$AZURE_DEPLOY_DIR/config/.env\" ]; then
+            sudo chmod 600 \"$AZURE_DEPLOY_DIR/config/.env\"
+        fi
         if [ ! -d \"$AZURE_DEPLOY_DIR/src\" ] || [ ! -d \"$AZURE_DEPLOY_DIR/scripts\" ]; then
             echo 'Error: Files were not transferred correctly'
-    exit 1
-fi
-
+            exit 1
+        fi
         echo 'Files transferred successfully'
     " || {
         echo "Failed to set permissions on VM"
@@ -302,77 +306,6 @@ check_vm_network() {
         return 1
     fi
     
-    # Get NSG associated with the network interface
-    local nsg_id=$(az network nic show \
-        --ids "$nic_id" \
-        --query "networkSecurityGroup.id" \
-        --output tsv)
-    
-    if [ -z "$nsg_id" ]; then
-        echo "No NSG associated with VM. Creating default NSG..."
-        
-        # Create a default NSG
-        local nsg_name="${AZURE_VM_NAME}-nsg"
-        az network nsg create \
-            --resource-group $AZURE_RESOURCE_GROUP \
-            --name $nsg_name \
-            --subscription $AZURE_SUBSCRIPTION_ID
-        
-        # Add SSH rule
-        az network nsg rule create \
-            --resource-group $AZURE_RESOURCE_GROUP \
-            --nsg-name $nsg_name \
-            --name AllowSSH \
-            --priority 1000 \
-            --direction Inbound \
-            --access Allow \
-            --protocol Tcp \
-            --source-port-ranges '*' \
-            --destination-port-ranges 22 \
-            --subscription $AZURE_SUBSCRIPTION_ID
-        
-        # Associate NSG with NIC
-        az network nic update \
-            --ids "$nic_id" \
-            --network-security-group $nsg_name \
-            --subscription $AZURE_SUBSCRIPTION_ID
-    else
-        # Get NSG name and resource group
-        local nsg_name=$(az network nsg show \
-            --ids "$nsg_id" \
-            --query "name" \
-            --output tsv)
-        
-        local nsg_rg=$(az network nsg show \
-            --ids "$nsg_id" \
-            --query "resourceGroup" \
-            --output tsv)
-        
-        # Check if SSH port is open
-        local ssh_rule=$(az network nsg rule list \
-            --resource-group "$nsg_rg" \
-            --nsg-name "$nsg_name" \
-            --query "[?destinationPortRanges[0]=='22'].name" \
-            --output tsv)
-        
-        if [ -z "$ssh_rule" ]; then
-            echo "SSH port not open. Adding SSH rule..."
-            
-            # Add SSH rule
-            az network nsg rule create \
-                --resource-group "$nsg_rg" \
-                --nsg-name "$nsg_name" \
-                --name AllowSSH \
-                --priority 1000 \
-                --direction Inbound \
-                --access Allow \
-                --protocol Tcp \
-                --source-port-ranges '*' \
-                --destination-port-ranges 22 \
-                --subscription $AZURE_SUBSCRIPTION_ID
-        fi
-    fi
-    
     return 0
 }
 
@@ -488,121 +421,9 @@ check_vm_status() {
     return 0
 }
 
-# Function to deploy the application
-deploy_application() {
-    echo "Starting deployment process..."
-    
-    # Check Azure login and VM status
-    check_azure_login || return 1
-    check_vm_status || return 1
-    
-    # Get Azure region
-    AZURE_REGION=$(az vm show \
-        --resource-group $AZURE_RESOURCE_GROUP \
-        --name $AZURE_VM_NAME \
-        --query "location" \
-        --output tsv)
-    
-    echo "Azure Region: $AZURE_REGION"
-    
-    # Transfer files to VM
-    transfer_files || return 1
-    
-    # Update system packages
-    execute_remote_command "
-        sudo apt-get update
-        sudo apt-get upgrade -y
-    " || return 1
-    
-    # Install required packages
-    execute_remote_command "
-        sudo apt-get install -y python3 python3-pip python3-venv git
-    " || return 1
-    
-    # Set up Python virtual environment and install dependencies
-    execute_remote_command "
-        # Create virtual environment
-        cd $AZURE_DEPLOY_DIR
-        python3 -m venv venv
-        
-        # Activate virtual environment and install dependencies
-        . venv/bin/activate && \
-        pip install --upgrade pip && \
-        if [ -f \"requirements.txt\" ]; then
-            pip install -r requirements.txt
-        else
-            echo \"Error: requirements.txt not found\"
-    exit 1
-        fi
-    " || return 1
-    
-    # Set up environment variables
-    execute_remote_command "
-        # Create config directory if it doesn't exist
-        if [ ! -d \"$AZURE_DEPLOY_DIR/config\" ]; then
-            mkdir -p $AZURE_DEPLOY_DIR/config
-        fi
-        
-        # Update .env file with Azure region
-        if [ -f \"$AZURE_DEPLOY_DIR/config/.env\" ]; then
-            # Remove existing AZURE_REGION if present
-            sed -i '/^AZURE_REGION=/d' $AZURE_DEPLOY_DIR/config/.env
-            sed -i '/^AZURE_LOCATION=/d' $AZURE_DEPLOY_DIR/config/.env
-        fi
-        
-        # Add Azure region to .env file
-        echo \"AZURE_REGION=$AZURE_REGION\" >> $AZURE_DEPLOY_DIR/config/.env
-        echo \"AZURE_LOCATION=$AZURE_REGION\" >> $AZURE_DEPLOY_DIR/config/.env
-        
-        # Set permissions
-        sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER $AZURE_DEPLOY_DIR
-        sudo chmod -R 755 $AZURE_DEPLOY_DIR
-        if [ -f \"$AZURE_DEPLOY_DIR/config/.env\" ]; then
-            sudo chmod 600 $AZURE_DEPLOY_DIR/config/.env
-        fi
-        
-        # Export environment variables
-        export AZURE_REGION=$AZURE_REGION
-        export AZURE_LOCATION=$AZURE_REGION
-    " || return 1
-    
-    # Set up systemd service
-    execute_remote_command "
-        # Create systemd service file
-        sudo tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null << EOF
-[Unit]
-Description=Telegram Bot Service
-After=network.target
-
-[Service]
-Type=simple
-User=$AZURE_VM_USER
-WorkingDirectory=/home/$AZURE_VM_USER/
-Environment=\"PATH=$AZURE_DEPLOY_DIR/venv/bin:\$PATH\"
-ExecStart=/bin/bash $AZURE_DEPLOY_DIR/scripts/run_bot.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        # Make run_bot.sh executable
-        chmod +x $AZURE_DEPLOY_DIR/scripts/run_bot.sh
-        
-        # Reload systemd and enable service
-        sudo systemctl daemon-reload
-        sudo systemctl enable $SERVICE_NAME
-        sudo systemctl start $SERVICE_NAME
-    " || return 1
-    
-    echo "Deployment completed successfully!"
-    return 0
-}
-
-# Function to check deployment status
-check_deployment() {
-    echo "Checking deployment status..."
+# Function to stop the bot
+stop_bot() {
+    echo "Stopping bot service..."
     
     # Check if SSH key exists
     if [ ! -f "$SSH_KEY_PATH" ]; then
@@ -613,69 +434,64 @@ check_deployment() {
     # Set correct permissions for SSH key
     chmod 600 "$SSH_KEY_PATH"
     
+    # Stop the bot with elevated privileges (sudo)
     ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        systemctl status $SERVICE_NAME
-    "
-}
-
-# Function to view logs
-view_logs() {
-    echo "Viewing bot logs..."
-    
-    # Check if SSH key exists
-    if [ ! -f "$SSH_KEY_PATH" ]; then
-        echo "Error: SSH key not found at $SSH_KEY_PATH"
-        return 1
-    fi
-    
-    # Set correct permissions for SSH key
-    chmod 600 "$SSH_KEY_PATH"
-    
-    # View logs using sudo
-    ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # Make sure monitor_bot.sh is executable
-        sudo chmod +x $AZURE_DEPLOY_DIR/scripts/monitor_bot.sh
-        
-        # Check if monitor_bot.sh exists
-        if [ ! -f \"$AZURE_DEPLOY_DIR/scripts/monitor_bot.sh\" ]; then
-            echo '❌ monitor_bot.sh not found'
-            exit 1
+        # First try to stop using systemd with sudo
+        if sudo systemctl is-active $SERVICE_NAME > /dev/null 2>&1; then
+            echo 'Stopping bot service with sudo...'
+            sudo systemctl stop $SERVICE_NAME
+            sleep 3
         fi
         
-        # Create logs directory if it doesn't exist
-        sudo mkdir -p $AZURE_DEPLOY_DIR/logs
-        
-        # Set correct permissions for logs directory
-        sudo chown -R $AZURE_VM_USER:$AZURE_VM_USER $AZURE_DEPLOY_DIR/logs
-        sudo chmod -R 755 $AZURE_DEPLOY_DIR/logs
-        
-        # Start monitor_bot.sh in the background with sudo
-        echo 'Starting log monitor...'
-        cd $AZURE_DEPLOY_DIR
-        sudo -u $AZURE_VM_USER nohup ./scripts/monitor_bot.sh > logs/monitor_output.log 2>&1 &
-        MONITOR_PID=\$!
-        
-        # Wait a moment for monitor to start
-        sleep 2
-        
-        # Check if monitor is running
-        if ps -p \$MONITOR_PID > /dev/null; then
-            echo '✅ Log monitor started successfully'
-            echo 'Monitoring logs... (Press Ctrl+C to stop)'
+        # Then check for any remaining processes and stop them with sudo
+        if ps aux | grep -v grep | grep -q "python.*main.py"; then
+            echo 'Found running bot processes. Stopping them with sudo...'
             
-            # Tail the monitor output with sudo
-            sudo tail -f logs/monitor_output.log
+            # Get the process IDs
+            PIDS=\$(ps aux | grep "python.*main.py" | grep -v grep | awk '{print \$2}')
+            
+            # Try to stop each process with sudo
+            for PID in \$PIDS; do
+                echo "Stopping process \$PID with sudo..."
+                if sudo kill \$PID 2>/dev/null; then
+                    echo "Successfully stopped process \$PID"
+                else
+                    echo "Failed to stop process \$PID with kill, trying sudo kill -9..."
+                    if sudo kill -9 \$PID 2>/dev/null; then
+                        echo "Successfully force stopped process \$PID with sudo"
+                    else
+                        echo "Failed to force stop process \$PID with sudo"
+                    fi
+                fi
+            done
+            
+            # Wait a moment and check if processes are still running
+            sleep 3
+            if ps aux | grep -v grep | grep -q "python.*main.py"; then
+                # One final attempt with full path to process and sudo pkill
+                echo 'Some processes still running. Trying sudo pkill as last resort...'
+                sudo pkill -9 -f "python.*main.py"
+                sleep 2
+                
+                if ps aux | grep -v grep | grep -q "python.*main.py"; then
+                    echo '❌ Some bot processes are still running after all attempts'
+                    echo 'Processes:'
+                    ps aux | grep -v grep | grep "python.*main.py"
+                    exit 1
+                else
+                    echo '✅ All bot processes have been stopped with sudo pkill'
+                    exit 0
+                fi
+            else
+                echo '✅ All bot processes have been stopped'
+                exit 0
+            fi
         else
-            echo '❌ Failed to start log monitor'
-            echo 'Last 20 lines of monitor_output.log:'
-            sudo tail -n 20 logs/monitor_output.log
-            
-            # Try alternative method using journalctl
-            echo 'Trying alternative method using journalctl...'
-            sudo journalctl -u $SERVICE_NAME -f
+            echo '✅ No bot processes are running'
+            exit 0
         fi
     " || {
-        echo "Failed to view bot logs"
+        echo "Failed to stop bot service"
         return 1
     }
     
@@ -695,54 +511,22 @@ restart_bot() {
     # Set correct permissions for SSH key
     chmod 600 "$SSH_KEY_PATH"
     
-    # Restart the bot using sudo
+    # 先停止 bot
+    stop_bot || {
+        echo "Failed to stop bot before restart"
+        return 1
+    }
+    
+    # 再啟動 bot（在 VM 上執行 run_bot.sh）
     ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # Make sure scripts are executable
-        sudo chmod +x $AZURE_DEPLOY_DIR/scripts/stop_bot.sh
-        sudo chmod +x $AZURE_DEPLOY_DIR/scripts/run_bot.sh
-        
-        # First stop the bot using sudo
-        echo 'Stopping bot...'
-        cd $AZURE_DEPLOY_DIR
-        if sudo ./scripts/stop_bot.sh; then
-            echo '✅ Bot stopped successfully'
-            
-            # Wait a moment
-            sleep 2
-            
-            # Then start the bot using sudo
-            echo 'Starting bot...'
-            if sudo ./scripts/run_bot.sh; then
-                echo '✅ Bot started successfully'
-                exit 0
-            else
-                echo '❌ Failed to start bot'
-                echo 'Last 20 lines of bot_output.log:'
-                sudo tail -n 20 logs/bot_output.log
-                exit 1
-            fi
+        cd $AZURE_DEPLOY_DIR || exit 1
+        if [ -f \"$AZURE_DEPLOY_DIR/scripts/run_bot.sh\" ]; then
+            echo 'Starting bot using run_bot.sh...'
+            bash \"$AZURE_DEPLOY_DIR/scripts/run_bot.sh\" > /home/azureuser/logs/bot_restart.log 2>&1 &
+            exit 0
         else
-            echo '❌ Failed to stop bot'
-            echo 'Trying alternative stop method...'
-            
-            # Try to stop using systemctl
-            if sudo systemctl stop $SERVICE_NAME; then
-                echo '✅ Bot stopped using systemctl'
-                sleep 2
-                
-                # Start using systemctl
-                if sudo systemctl start $SERVICE_NAME; then
-                    echo '✅ Bot started using systemctl'
-                    exit 0
-                else
-                    echo '❌ Failed to start bot using systemctl'
-                    sudo systemctl status $SERVICE_NAME
-                    exit 1
-                fi
-            else
-                echo '❌ Failed to stop bot using systemctl'
-                exit 1
-            fi
+            echo '❌ run_bot.sh not found at $AZURE_DEPLOY_DIR/scripts/run_bot.sh'
+            exit 1
         fi
     " || {
         echo "Failed to restart bot service"
@@ -752,215 +536,106 @@ restart_bot() {
     return 0
 }
 
-# Function to stop the bot
-stop_bot() {
-    echo "Stopping bot service..."
-    
-    # Check if SSH key exists
-    if [ ! -f "$SSH_KEY_PATH" ]; then
-        echo "Error: SSH key not found at $SSH_KEY_PATH"
-        return 1
-    fi
-    
-    # Set correct permissions for SSH key
-    chmod 600 "$SSH_KEY_PATH"
-    
-    # Stop the bot with sudo
-    ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # First try to stop using systemd
-        if sudo systemctl is-active $SERVICE_NAME > /dev/null 2>&1; then
-            echo 'Stopping bot service...'
-            sudo systemctl stop $SERVICE_NAME
-            sleep 2
-        fi
-        
-        # Then check for any remaining processes
-        if ps aux | grep -v grep | grep -q \"python.*main.py\"; then
-            echo 'Found running bot process. Stopping it...'
-            
-            # Get the process IDs
-            PIDS=\$(ps aux | grep \"python.*main.py\" | grep -v grep | awk '{print \$2}')
-            
-            # Try to stop each process with sudo
-            for PID in \$PIDS; do
-                echo \"Stopping process \$PID...\"
-                if sudo kill \$PID 2>/dev/null; then
-                    echo \"Successfully stopped process \$PID\"
-                else
-                    echo \"Failed to stop process \$PID with kill, trying kill -9...\"
-                    if sudo kill -9 \$PID 2>/dev/null; then
-                        echo \"Successfully force stopped process \$PID\"
-                    else
-                        echo \"Failed to force stop process \$PID\"
-                    fi
-                fi
-            done
-            
-            # Wait a moment and check if processes are still running
-            sleep 2
-            if ps aux | grep -v grep | grep -q \"python.*main.py\"; then
-                echo '❌ Some bot processes are still running'
-                exit 1
-            else
-                echo '✅ All bot processes have been stopped'
-                exit 0
-            fi
-        else
-            echo '✅ No bot processes are running'
-            exit 0
-        fi
-    " || {
-        echo "Failed to stop bot service"
-        return 1
-    }
-    
-    return 0
+# Function to show help information
+show_help() {
+    echo "Azure Bot Deployment Tool - Command Help"
+    echo ""
+    echo "Available Commands:"
+    echo "1. Connect to VM"
+    echo "   - Establishes SSH connection to the Azure VM"
+    echo "   - Usage: Select option 1 from the menu"
+    echo ""
+    echo "2. Deploy Application"
+    echo "   - Deploys the bot application to Azure VM"
+    echo "   - Sets up Python environment and dependencies"
+    echo "   - Configures systemd service"
+    echo "   - Usage: Select option 2 from the menu"
+    echo ""
+    echo "3. Check Deployment Status"
+    echo "   - Verifies the deployment status"
+    echo "   - Checks systemd service status"
+    echo "   - Usage: Select option 3 from the menu"
+    echo ""
+    echo "4. View Logs"
+    echo "   - Displays bot logs in real-time"
+    echo "   - Shows last 20 lines of logs"
+    echo "   - Usage: Select option 4 from the menu"
+    echo ""
+    echo "5. Start Bot"
+    echo "   - Starts the bot service"
+    echo "   - Restarts if already running"
+    echo "   - Usage: Select option 5 from the menu"
+    echo ""
+    echo "6. Stop Bot"
+    echo "   - Stops the bot service"
+    echo "   - Kills all bot processes"
+    echo "   - Usage: Select option 6 from the menu"
+    echo ""
+    echo "7. Update Bot"
+    echo "   - Updates bot files and dependencies"
+    echo "   - Restarts the service after update"
+    echo "   - Usage: Select option 7 from the menu"
+    echo ""
+    echo "8. Check Bot Status"
+    echo "   - Shows detailed bot status"
+    echo "   - Displays process information"
+    echo "   - Shows recent logs"
+    echo "   - Usage: Select option 8 from the menu"
+    echo ""
+    echo "9. Start Operation Bot"
+    echo "   - Starts the operation monitoring bot"
+    echo "   - Runs in background"
+    echo "   - Monitors bot status"
+    echo "   - Usage: Select option 9 from the menu"
+    echo ""
+    echo "10. Stop Operation Bot"
+    echo "    - Stops the operation monitoring bot"
+    echo "    - Kills all monitoring processes"
+    echo "    - Usage: Select option 10 from the menu"
+    echo ""
+    echo "11. Check Operation Bot Status"
+    echo "    - Shows operation bot status"
+    echo "    - Displays monitoring process info"
+    echo "    - Shows monitoring logs"
+    echo "    - Usage: Select option 11 from the menu"
+    echo ""
+    echo "12. Show Help"
+    echo "    - Displays this help information"
+    echo "    - Usage: Select option 12 from the menu"
+    echo ""
+    echo "13. Exit"
+    echo "    - Exits the deployment tool"
+    echo "    - Usage: Select option 13 from the menu"
+    echo ""
+    echo "Environment Variables:"
+    echo "- AZURE_RESOURCE_GROUP: Azure resource group name"
+    echo "- AZURE_VM_NAME: Azure VM name"
+    echo "- AZURE_SUBSCRIPTION_ID: Azure subscription ID"
+    echo "- AZURE_DEPLOY_DIR: Deployment directory on VM"
+    echo "- AZURE_VM_USER: VM username"
+    echo "- AZURE_VM_IP: VM IP address"
+    echo "- SSH_KEY_PATH: Path to SSH private key"
+    echo ""
+    echo "Log Files:"
+    echo "- /home/azureuser/logs/bot_output.log: Main bot logs"
+    echo "- /home/azureuser/logs/operation_bot.log: Operation bot logs"
+    echo "- /home/azureuser/logs/monitor.log: Monitoring logs"
+    echo ""
+    echo "Note: All commands require proper SSH key and Azure CLI configuration."
 }
 
-# Function to start the bot
-start_bot() {
-    echo "Starting bot service..."
-    
-    # Check if SSH key exists
-    if [ ! -f "$SSH_KEY_PATH" ]; then
-        echo "Error: SSH key not found at $SSH_KEY_PATH"
-        return 1
-    fi
-    
-    # Set correct permissions for SSH key
-    chmod 600 "$SSH_KEY_PATH"
-    
-    # Start the service with proper error handling
-    local ssh_output
-    ssh_output=$(ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # Make sure run_bot.sh is executable
-        sudo chmod +x $AZURE_DEPLOY_DIR/scripts/run_bot.sh
-        
-        # Check if bot is already running
-        if systemctl is-active $SERVICE_NAME > /dev/null 2>&1; then
-            echo '✅ Bot service is already running'
-            systemctl status $SERVICE_NAME
-            exit 0
-        fi
-        
-        # Start the bot service
-        echo 'Starting bot service...'
-        sudo systemctl start $SERVICE_NAME
-        
-        # Wait for service to start
-        sleep 5
-        
-        # Check service status
-        if systemctl is-active $SERVICE_NAME > /dev/null 2>&1; then
-            echo '✅ Bot service started successfully'
-            systemctl status $SERVICE_NAME
-            exit 0
-        else
-            echo '❌ Failed to start bot service'
-            echo 'Service status:'
-            systemctl status $SERVICE_NAME
-            echo 'Last 20 lines of bot_output.log:'
-            sudo tail -n 20 $AZURE_DEPLOY_DIR/logs/bot_output.log
-            exit 1
-        fi
-    ")
-    
-    local ssh_exit_code=$?
-    
-    # Check if service is actually running
-    if ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "systemctl is-active $SERVICE_NAME > /dev/null 2>&1"; then
-        echo "✅ Bot service is running"
-        ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "systemctl status $SERVICE_NAME"
-        return 0
-    fi
-    
-    # If we get here, the service is not running
-    echo "Failed to start bot service"
-    echo "SSH output:"
-    echo "$ssh_output"
-    return 1
-}
-
-# Function to update the bot
-update_bot() {
-    echo "Updating bot..."
-    transfer_files || return 1
-    
-    execute_remote_command "
-        cd $AZURE_DEPLOY_DIR
-        
-        # Activate virtual environment and update dependencies
-        . venv/bin/activate && \
-        pip install --upgrade pip && \
-        if [ -f \"requirements.txt\" ]; then
-            pip install -r requirements.txt
-        else
-            echo \"Error: requirements.txt not found\"
-            exit 1
-        fi
-        
-        # Restart the service
-        sudo systemctl restart $SERVICE_NAME
-    " || return 1
-    
-    echo "Bot updated successfully!"
-    return 0
-}
-
-# Function to check bot status
-check_status() {
-    echo "Checking bot status..."
-    
-    # Check if SSH key exists
-    if [ ! -f "$SSH_KEY_PATH" ]; then
-        echo "Error: SSH key not found at $SSH_KEY_PATH"
-        return 1
-    fi
-    
-    # Set correct permissions for SSH key
-    chmod 600 "$SSH_KEY_PATH"
-    
-    # Check status using check_status.sh with sudo
-    ssh -i "$SSH_KEY_PATH" "$AZURE_VM_USER@$AZURE_VM_IP" "
-        # Make sure check_status.sh is executable
-        sudo chmod +x $AZURE_DEPLOY_DIR/scripts/check_status.sh
-        
-        # Check if check_status.sh exists
-        if [ ! -f \"$AZURE_DEPLOY_DIR/scripts/check_status.sh\" ]; then
-            echo '❌ check_status.sh not found'
-            exit 1
-        fi
-        
-        # Run check_status.sh with sudo
-        echo 'Running status check...'
-        cd $AZURE_DEPLOY_DIR
-        sudo ./scripts/check_status.sh
-        
-        # Also check systemd service status
-        echo ''
-        echo '=== Systemd Service Status ==='
-        sudo systemctl status $SERVICE_NAME
-        
-        # Check process status
-        echo ''
-        echo '=== Process Status ==='
-        sudo ps aux | grep -v grep | grep \"python.*main.py\"
-        
-        # Check logs
-        echo ''
-        echo '=== Latest Logs ==='
-        sudo tail -n 20 logs/bot_output.log 2>/dev/null || echo 'No logs found'
-    " || {
-        echo "Failed to check bot status"
-        return 1
-    }
-    
-    return 0
+# Function to wait for user to press Enter
+wait_for_enter() {
+    echo ""
+    read -p "Press Enter to return to main menu..."
+    clear
 }
 
 # Main menu
 show_menu() {
     echo "Azure Bot Deployment Menu"
+    echo ""
+    echo "Main Bot Commands:"
     echo "1. Connect to VM"
     echo "2. Deploy Application"
     echo "3. Check Deployment Status"
@@ -969,7 +644,17 @@ show_menu() {
     echo "6. Stop Bot"
     echo "7. Update Bot"
     echo "8. Check Bot Status"
-    echo "9. Exit"
+    echo ""
+    echo "Operation Bot Commands:"
+    echo "   (Operation Bot is a monitoring service that watches the main bot and"
+    echo "    automatically restarts it if it crashes or stops running)"
+    echo "9. Start Operation Bot"
+    echo "10. Stop Operation Bot"
+    echo "11. Check Operation Bot Status"
+    echo ""
+    echo "Utility Commands:"
+    echo "12. Show Help"
+    echo "13. Exit"
     echo -n "Enter your choice: "
 }
 
@@ -978,15 +663,61 @@ while true; do
     show_menu
     read choice
     case $choice in
-        1) connect_to_vm ;;
-        2) deploy_application ;;
-        3) check_deployment ;;
-        4) view_logs ;;
-        5) restart_bot ;;
-        6) stop_bot ;;
-        7) update_bot ;;
-        8) check_status ;;
-        9) echo "Exiting..."; exit 0 ;;
-        *) echo "Invalid choice. Please try again." ;;
+        1) 
+            connect_to_vm
+            wait_for_enter
+            ;;
+        2) 
+            transfer_files
+            wait_for_enter
+            ;;
+        3) 
+            check_deployment
+            wait_for_enter
+            ;;
+        4) 
+            view_logs
+            wait_for_enter
+            ;;
+        5) 
+            restart_bot
+            wait_for_enter
+            ;;
+        6) 
+            stop_bot
+            wait_for_enter
+            ;;
+        7) 
+            update_bot
+            wait_for_enter
+            ;;
+        8) 
+            check_status
+            wait_for_enter
+            ;;
+        9) 
+            start_operation_bot
+            wait_for_enter
+            ;;
+        10) 
+            stop_operation_bot
+            wait_for_enter
+            ;;
+        11) 
+            check_operation_bot_status
+            wait_for_enter
+            ;;
+        12) 
+            show_help
+            wait_for_enter
+            ;;
+        13) 
+            echo "Exiting..."
+            exit 0
+            ;;
+        *) 
+            echo "Invalid choice. Please try again."
+            wait_for_enter
+            ;;
     esac
 done

@@ -11,6 +11,8 @@ log_info() {
 log_error() {
     echo -e "\033[0;31m[ERROR]\033[0m $1" >&2
 }
+
+# Check for available Python command
 log_info "Detecting available Python command..."
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"

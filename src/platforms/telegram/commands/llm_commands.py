@@ -6,6 +6,7 @@ from .base import CommandHandler
 from .utils import MessageHelper
 from utils.animations import animated_thinking, INITIAL_MESSAGE_ART, SIMPLE_INITIAL_MESSAGE, THINKING_ANIMATIONS
 import time
+import os
 
 logger = logging.getLogger("telegram_llm_commands")
 
@@ -449,7 +450,6 @@ class LLMCommandHandler(CommandHandler):
         """Handle the /env command"""
         try:
             # Get environment information
-            import os
             import sys
             import platform
             
@@ -511,9 +511,9 @@ class LLMCommandHandler(CommandHandler):
             async def stream_generator():
                 # Get stream generator using GitHub API
                 sync_generator = self.client.llm_client.call_llm_stream(
-                    'github', 
+                    'openai', 
                     prompt, 
-                    model="gpt-4o-mini",  # GitHub hosted model
+                    model="gpt-4.1",  # GitHub hosted model
                     system_prompt="You are GPT, a helpful AI assistant. Always provide clear, detailed and accurate responses."
                 )
                 

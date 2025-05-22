@@ -1,8 +1,9 @@
 #!/bin/bash
 
 cd "./.." || exit
-LOG_DIR="logs"
+LOG_DIR="/Users/tomleung/Downloads/ws-tg-llm-bot/logs"
 mkdir -p "$LOG_DIR"
+chmod -R 777 "$LOG_DIR"
 
 PYTHON_CMD="python3"
 
