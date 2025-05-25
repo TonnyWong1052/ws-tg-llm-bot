@@ -117,7 +117,7 @@ src/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/ws-tg-llm-bot.git
+git clone https://github.com/TonnyWong1052/Message-Bot-dogv.git
 cd ws-tg-llm-bot
 ```
 
